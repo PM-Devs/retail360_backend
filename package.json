@@ -1,0 +1,25 @@
+{
+  "name": "retail360",
+  "version": "1.0.0",
+  "description": "This is a retail app for people to monitor thier shops",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Prince Mawuko Dzorkpe",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.1.0",
+    "express": "^5.1.0",
+    "express-cors": "^0.0.3",
+    "groq-sdk": "^0.26.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.16.2",
+    "qrcode": "^1.5.4",
+    "uuid": "^11.1.0",
+    "vercel": "^44.2.13"
+  },
+  "type": "module"
+}
