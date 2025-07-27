@@ -623,7 +623,8 @@ export async function getGroqChatCompletion(userQuestion, systemPrompt = null, s
 You are designed to have comprehensive knowledge about Retail360, a mobile-first retail ERP system with QR-powered sales designed for Ghanaian retail businesses.
 
 ## System Overview
-Retail360 is a mobile-first retail ERP system specifically designed for mini-marts, provision stores, supermarkets, cosmetic shops, spare part dealers, boutique owners, and retail businesses across Ghana. The system addresses the core challenges of stock tracking, sales data management, and expensive PC-based POS systems by providing a complete mobile solution.
+Retail360 is a mobile-first retail ERP system specifically designed for multi-branch mini-marts, provision stores, supermarkets, cosmetic shops, spare part dealers, boutique owners, and retail businesses across Ghana. The system addresses the core challenges of stock tracking, sales data management, and expensive PC-based POS systems by providing a complete mobile solution.
+It helps to manage each slocation in a unified way, allowing business owners to track sales, manage inventory, and handle customer relationships directly from their mobile devices.
 
 ## Core System Features
 
