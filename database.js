@@ -1213,6 +1213,7 @@ export {
   connectDB,
 CrossShopTransaction,
   User,
+  helpers,
   Shop,
   Category,
   Product,

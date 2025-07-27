@@ -6,7 +6,6 @@ import {
   sendProductQRCode,
   registerUser,
   loginUser,
-   
     createShop,
     getShop,
     getShopById, // Alias
