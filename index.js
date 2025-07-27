@@ -6,9 +6,53 @@ import {
   sendProductQRCode,
   registerUser,
   loginUser,
-  createShop,
-  getShop,
-  updateShop,
+   
+    createShop,
+    getShop,
+    getShopById, // Alias
+    updateShop,
+    deleteShop,
+    permanentDeleteShop,
+    getUserShops,
+    getAllShops,
+    setCurrentShop,
+    getCurrentShop,
+    checkShopPermission,
+    getShopStats,
+    getShopsForUser,
+    getAllShopsByUserId, // Alias
+    getUserShopsByRole,
+    getUserOwnedShops,
+    getUserManagedShops,
+    getUserStaffShops,
+    getUserShopsByPermission,
+    getUserShopAccess,
+    getUserCurrentShop, // Alias
+    getShopUsers,
+    searchUsersInShops,
+    
+    // Master shop management
+    createShopWithMasterOption,
+    setMasterShop,
+    connectShopToMaster,
+    disconnectShopFromMaster,
+    
+    // Network operations
+    getMasterShopNetwork,
+    getShopNetworkHierarchy,
+    getShopNetworkAnalytics,
+    
+    // Financial operations
+    getConsolidatedFinancialReport,
+    getUserDebtSummary,
+    updateUserShopDebt,
+    transferBetweenShops,
+    
+    // Transaction management
+    recordCrossShopTransaction,
+    getUserCrossShopTransactions,
+    
+  
   createCategory,
   getCategories,
   updateCategory,
@@ -176,37 +220,419 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ========================= SHOP MANAGEMENT ROUTES =========================
+// ========================= MASTER SHOP SYSTEM ENDPOINTS =========================
 
-// POST /api/shops
-app.post('/api/shops', async (req, res) => {
+// POST /api/shops/master - Create shop with master option
+app.post('/api/shops/master', async (req, res) => {
   try {
-    const shop = await createShop(req.body);
+    const { setAsMaster = false, ...shopData } = req.body;
+    const shop = await createShopWithMasterOption(shopData, req.user.id, setAsMaster);
     res.status(201).json({ success: true, data: shop });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
-// GET /api/shops/:shopId
-app.get('/api/shops/:shopId', async (req, res) => {
+// PUT /api/users/:userId/master-shop - Set master shop
+app.put('/api/users/:userId/master-shop', async (req, res) => {
   try {
-    const shop = await getShop(req.params.shopId);
+    const { shopId } = req.body;
+    const result = await setMasterShop(req.params.userId, shopId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/shops/:shopId/connect-to-master - Connect shop to master
+app.post('/api/shops/:shopId/connect-to-master', async (req, res) => {
+  try {
+    const { masterShopId, connectionType = 'branch', financialSettings = {} } = req.body;
+    const result = await connectShopToMaster(req.params.shopId, masterShopId, connectionType, financialSettings);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/master-shop-network - Get master shop network
+app.get('/api/users/:userId/master-shop-network', async (req, res) => {
+  try {
+    const network = await getMasterShopNetwork(req.params.userId);
+    res.status(200).json({ success: true, data: network });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/consolidated-financial-report - Get consolidated financial report
+app.get('/api/users/:userId/consolidated-financial-report', async (req, res) => {
+  try {
+    const { fromDate, toDate } = req.query;
+    const dateRange = {};
+    if (fromDate) dateRange.fromDate = fromDate;
+    if (toDate) dateRange.toDate = toDate;
+    
+    const report = await getConsolidatedFinancialReport(req.params.userId, dateRange);
+    res.status(200).json({ success: true, data: report });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/cross-shop-transactions - Record cross-shop transaction
+app.post('/api/cross-shop-transactions', async (req, res) => {
+  try {
+    const transaction = await recordCrossShopTransaction(req.body);
+    res.status(201).json({ success: true, data: transaction });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/debt-summary - Get user debt summary
+app.get('/api/users/:userId/debt-summary', async (req, res) => {
+  try {
+    const summary = await getUserDebtSummary(req.params.userId);
+    res.status(200).json({ success: true, data: summary });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/shops/transfer - Transfer funds between shops
+app.post('/api/shops/transfer', async (req, res) => {
+  try {
+    const { fromShopId, toShopId, amount, description = '' } = req.body;
+    const result = await transferBetweenShops(fromShopId, toShopId, amount, req.user.id, description);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/cross-shop-transactions - Get user cross-shop transactions
+app.get('/api/users/:userId/cross-shop-transactions', async (req, res) => {
+  try {
+    const { transactionType, status, fromDate, toDate, limit } = req.query;
+    const filters = {};
+    if (transactionType) filters.transactionType = transactionType;
+    if (status) filters.status = status;
+    if (fromDate && toDate) {
+      filters.fromDate = fromDate;
+      filters.toDate = toDate;
+    }
+    if (limit) filters.limit = parseInt(limit);
+    
+    const transactions = await getUserCrossShopTransactions(req.params.userId, filters);
+    res.status(200).json({ success: true, data: transactions });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /api/shops/:shopId/disconnect-from-master - Disconnect shop from master
+app.delete('/api/shops/:shopId/disconnect-from-master', async (req, res) => {
+  try {
+    const result = await disconnectShopFromMaster(req.params.shopId, req.user.id);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/shop-network-hierarchy - Get shop network hierarchy
+app.get('/api/users/:userId/shop-network-hierarchy', async (req, res) => {
+  try {
+    const hierarchy = await getShopNetworkHierarchy(req.params.userId);
+    res.status(200).json({ success: true, data: hierarchy });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/users/:userId/shops/:shopId/debt - Update user shop debt
+app.put('/api/users/:userId/shops/:shopId/debt', async (req, res) => {
+  try {
+    const { newAmount, description = '' } = req.body;
+    const result = await updateUserShopDebt(req.params.userId, req.params.shopId, newAmount, description);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/shop-network-analytics - Get comprehensive shop network analytics
+app.get('/api/users/:userId/shop-network-analytics', async (req, res) => {
+  try {
+    const { fromDate, toDate } = req.query;
+    const dateRange = {};
+    if (fromDate) dateRange.fromDate = fromDate;
+    if (toDate) dateRange.toDate = toDate;
+    
+    const analytics = await getShopNetworkAnalytics(req.params.userId, dateRange);
+    res.status(200).json({ success: true, data: analytics });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// ========================= MISSING UTILITY ENDPOINTS =========================
+
+// GET /api/shops/:shopId/details - Get shop by ID (alias)
+app.get('/api/shops/:shopId/details', async (req, res) => {
+  try {
+    const shop = await getShopById(req.params.shopId);
     res.status(200).json({ success: true, data: shop });
   } catch (error) {
     res.status(404).json({ success: false, message: error.message });
   }
 });
 
-// PUT /api/shops/:shopId
-app.put('/api/shops/:shopId', async (req, res) => {
+// GET /api/users/:userId/shops/all - Get all shops by user ID (alias)
+app.get('/api/users/:userId/shops/all', async (req, res) => {
   try {
-    const shop = await updateShop(req.params.shopId, req.body);
-    res.status(200).json({ success: true, data: shop });
+    const result = await getAllShopsByUserId(req.params.userId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/shops/for-user - Get shops for user (alias)
+app.get('/api/users/:userId/shops/for-user', async (req, res) => {
+  try {
+    const result = await getShopsForUser(req.params.userId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:userId/shops/:shopId/permissions/:permission - Check shop permission
+app.get('/api/users/:userId/shops/:shopId/permissions/:permission', async (req, res) => {
+  try {
+    const hasPermission = await checkShopPermission(req.params.userId, req.params.shopId, req.params.permission);
+    res.status(200).json({ 
+      success: true, 
+      data: { 
+        hasPermission,
+        userId: req.params.userId,
+        shopId: req.params.shopId,
+        permission: req.params.permission
+      }
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
+// ========================= UPDATED EXISTING ENDPOINTS =========================
+
+// POST /api/shops - Updated to support master shop option
+app.post('/api/shops', async (req, res) => {
+  try {
+    const { setAsMaster = false, ...shopData } = req.body;
+    const shop = await createShop(shopData, req.user.id, setAsMaster);
+    res.status(201).json({ success: true, data: shop });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/shops - Updated with master shop filtering
+app.get('/api/shops', async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search = '', filterByLevel = '' } = req.query;
+    const result = await getAllShops(parseInt(page), parseInt(limit), search, filterByLevel);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/shops/:shopId
+app.put('/api/shops/:shopId', async (req, res) => {
+ try {
+   const shop = await updateShop(req.params.shopId, req.body);
+   res.status(200).json({ success: true, data: shop });
+ } catch (error) {
+   res.status(400).json({ success: false, message: error.message });
+ }
+});
+
+// DELETE /api/shops/:shopId
+app.delete('/api/shops/:shopId', async (req, res) => {
+ try {
+   const result = await deleteShop(req.params.shopId, req.user.id);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(400).json({ success: false, message: error.message });
+ }
+});
+
+// DELETE /api/shops/:shopId/permanent
+app.delete('/api/shops/:shopId/permanent', async (req, res) => {
+ try {
+   const result = await permanentDeleteShop(req.params.shopId, req.user.id);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(400).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/shops
+app.get('/api/users/:userId/shops', async (req, res) => {
+ try {
+   const shops = await getUserShops(req.params.userId);
+   res.status(200).json({ success: true, data: shops });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/shops
+app.get('/api/shops', async (req, res) => {
+ try {
+   const { page = 1, limit = 10, search = '' } = req.query;
+   const result = await getAllShops(parseInt(page), parseInt(limit), search);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(400).json({ success: false, message: error.message });
+ }
+});
+
+// PUT /api/users/:userId/current-shop
+app.put('/api/users/:userId/current-shop', async (req, res) => {
+ try {
+   const shop = await setCurrentShop(req.params.userId, req.body.shopId);
+   res.status(200).json({ success: true, data: shop });
+ } catch (error) {
+   res.status(400).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/current-shop
+app.get('/api/users/:userId/current-shop', async (req, res) => {
+ try {
+   const shop = await getCurrentShop(req.params.userId);
+   res.status(200).json({ success: true, data: shop });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/shops/:shopId/stats
+app.get('/api/shops/:shopId/stats', async (req, res) => {
+ try {
+   const stats = await getShopStats(req.params.shopId);
+   res.status(200).json({ success: true, data: stats });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/all-shops
+app.get('/api/users/:userId/all-shops', async (req, res) => {
+ try {
+   const result = await getShopsForUser(req.params.userId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/shops/role/:role
+app.get('/api/users/:userId/shops/role/:role', async (req, res) => {
+ try {
+   const result = await getUserShopsByRole(req.params.userId, req.params.role);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/owned-shops
+app.get('/api/users/:userId/owned-shops', async (req, res) => {
+ try {
+   const result = await getUserOwnedShops(req.params.userId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/managed-shops
+app.get('/api/users/:userId/managed-shops', async (req, res) => {
+ try {
+   const result = await getUserManagedShops(req.params.userId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/staff-shops
+app.get('/api/users/:userId/staff-shops', async (req, res) => {
+ try {
+   const result = await getUserStaffShops(req.params.userId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/shops/permission/:permission
+app.get('/api/users/:userId/shops/permission/:permission', async (req, res) => {
+ try {
+   const result = await getUserShopsByPermission(req.params.userId, req.params.permission);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/shops/:shopId/access
+app.get('/api/users/:userId/shops/:shopId/access', async (req, res) => {
+ try {
+   const result = await getUserShopAccess(req.params.userId, req.params.shopId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/:userId/current-shop-details
+app.get('/api/users/:userId/current-shop-details', async (req, res) => {
+ try {
+   const result = await getUserCurrentShop(req.params.userId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/shops/:shopId/users
+app.get('/api/shops/:shopId/users', async (req, res) => {
+ try {
+   const result = await getShopUsers(req.params.shopId);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(404).json({ success: false, message: error.message });
+ }
+});
+
+// GET /api/users/search
+app.get('/api/users/search', async (req, res) => {
+ try {
+   const { term, shopIds } = req.query;
+   const shopIdArray = shopIds ? shopIds.split(',') : [];
+   const result = await searchUsersInShops(term, shopIdArray);
+   res.status(200).json({ success: true, data: result });
+ } catch (error) {
+   res.status(400).json({ success: false, message: error.message });
+ }
+});
 // ========================= CATEGORY MANAGEMENT ROUTES =========================
 
 // POST /api/categories

@@ -12,7 +12,8 @@ import {
   DailyReport,
   Notification,
   Discount,
-  helpers
+  helpers,
+  CrossShopTransaction,
 } from './database.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -108,16 +109,743 @@ const registerUser = async (userData) => {
     throw new Error(`Registration failed: ${error.message}`);
   }
 };
+// ========================= MASTER SHOP MANAGEMENT FUNCTIONS =========================
 
 /**
- * Login user
+ * Create a new shop and optionally set it as master shop
  */
+const createShopWithMasterOption = async (shopData, userId, setAsMaster = false) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Create the shop
+    const shop = new Shop({
+      ...shopData,
+      owner: userId,
+      shopLevel: setAsMaster ? 'master' : 'independent',
+      users: [{
+        userId: userId,
+        role: 'owner',
+        permissions: ['inventory', 'sales', 'reports', 'settings', 'users'],
+        isActive: true
+      }]
+    });
+
+    await shop.save();
+
+    // Update user's ownedShops array
+    user.ownedShops.push({
+      shopId: shop._id,
+      isMaster: setAsMaster,
+      isActive: true
+    });
+
+    // Update user's shops array for access
+    user.shops.push({
+      shopId: shop._id,
+      role: 'owner',
+      permissions: ['inventory', 'sales', 'reports', 'settings', 'users'],
+      isActive: true
+    });
+
+    // Set as master shop if specified or if it's the first shop
+    if (setAsMaster || (!user.masterShop && user.ownedShops.length === 1)) {
+      user.masterShop = shop._id;
+      shop.shopLevel = 'master';
+      await shop.save();
+    }
+
+    // Set as current shop if it's the first shop
+    if (user.shops.length === 1) {
+      user.currentShop = shop._id;
+    }
+
+    await user.save();
+
+    return await Shop.findById(shop._id).populate('owner');
+  } catch (error) {
+    throw new Error(`Create shop failed: ${error.message}`);
+  }
+};
+
+/**
+ * Set a shop as the master shop for a user
+ */
+const setMasterShop = async (userId, shopId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check if user owns this shop
+    const ownedShop = user.ownedShops.find(
+      shop => shop.shopId.toString() === shopId.toString() && shop.isActive
+    );
+
+    if (!ownedShop) {
+      throw new Error('User does not own this shop');
+    }
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
+
+    // Update the previous master shop if exists
+    if (user.masterShop) {
+      const previousMasterShop = await Shop.findById(user.masterShop);
+      if (previousMasterShop) {
+        previousMasterShop.shopLevel = 'independent';
+        await previousMasterShop.save();
+      }
+
+      // Update previous master in ownedShops
+      const prevMasterOwned = user.ownedShops.find(
+        shop => shop.shopId.toString() === user.masterShop.toString()
+      );
+      if (prevMasterOwned) {
+        prevMasterOwned.isMaster = false;
+      }
+    }
+
+    // Set new master shop
+    user.masterShop = shopId;
+    ownedShop.isMaster = true;
+    
+    shop.shopLevel = 'master';
+    shop.masterShop = null; // Master shop doesn't have a parent
+
+    await Promise.all([user.save(), shop.save()]);
+
+    return {
+      message: 'Master shop set successfully',
+      masterShop: shop,
+      user: {
+        id: user._id,
+        name: user.name,
+        masterShop: user.masterShop
+      }
+    };
+  } catch (error) {
+    throw new Error(`Set master shop failed: ${error.message}`);
+  }
+};
+
+/**
+ * Connect a shop to a master shop
+ */
+const connectShopToMaster = async (shopId, masterShopId, connectionType = 'branch', financialSettings = {}) => {
+  try {
+    const shop = await Shop.findById(shopId);
+    const masterShop = await Shop.findById(masterShopId);
+
+    if (!shop || !masterShop) {
+      throw new Error('Shop or master shop not found');
+    }
+
+    if (masterShop.shopLevel !== 'master') {
+      throw new Error('Target shop is not a master shop');
+    }
+
+    // Connect shop to master
+    shop.masterShop = masterShopId;
+    shop.shopLevel = 'branch';
+
+    // Add to master shop's connected shops
+    await masterShop.addConnectedShop(shopId, connectionType, financialSettings);
+    await shop.save();
+
+    return {
+      message: 'Shop connected to master successfully',
+      shop: shop,
+      masterShop: masterShop
+    };
+  } catch (error) {
+    throw new Error(`Connect shop to master failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get master shop details and all connected shops
+ */
+const getMasterShopNetwork = async (userId) => {
+  try {
+    const user = await User.findById(userId).populate({
+      path: 'masterShop',
+      populate: {
+        path: 'connectedShops.shopId',
+        select: 'name description address phone email financials createdAt'
+      }
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (!user.masterShop) {
+      return {
+        hasMasterShop: false,
+        message: 'User has no master shop set'
+      };
+    }
+
+    const masterShop = user.masterShop;
+    const connectedShops = masterShop.getConnectedShops(true);
+
+    // Calculate network statistics
+    const networkRevenue = await masterShop.getTotalNetworkRevenue();
+    
+    return {
+      hasMasterShop: true,
+      masterShop: {
+        id: masterShop._id,
+        name: masterShop.name,
+        description: masterShop.description,
+        address: masterShop.address,
+        phone: masterShop.phone,
+        email: masterShop.email,
+        financials: masterShop.financials,
+        createdAt: masterShop.createdAt
+      },
+      connectedShops: connectedShops.map(conn => ({
+        id: conn.shopId._id,
+        name: conn.shopId.name,
+        description: conn.shopId.description,
+        address: conn.shopId.address,
+        connectionType: conn.connectionType,
+        connectedAt: conn.connectedAt,
+        financialSettings: conn.financialSettings,
+        revenue: conn.shopId.financials?.totalRevenue || 0
+      })),
+      networkStats: {
+        totalShops: connectedShops.length + 1, // +1 for master shop
+        totalNetworkRevenue: networkRevenue,
+        masterShopRevenue: masterShop.financials?.totalRevenue || 0
+      }
+    };
+  } catch (error) {
+    throw new Error(`Get master shop network failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get consolidated financial report across all shops in network
+ */
+const getConsolidatedFinancialReport = async (userId, dateRange = {}) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user || !user.masterShop) {
+      throw new Error('User or master shop not found');
+    }
+
+    const network = await getMasterShopNetwork(userId);
+    if (!network.hasMasterShop) {
+      throw new Error('No master shop network found');
+    }
+
+    let totalRevenue = 0;
+    let totalExpenses = 0;
+    let totalDebt = 0;
+
+    const shopReports = [];
+
+    // Master shop financials
+    const masterShop = await Shop.findById(user.masterShop);
+    totalRevenue += masterShop.financials?.totalRevenue || 0;
+    totalExpenses += masterShop.financials?.totalExpenses || 0;
+    totalDebt += masterShop.financials?.totalDebt || 0;
+
+    shopReports.push({
+      shopId: masterShop._id,
+      shopName: masterShop.name,
+      shopType: 'master',
+      revenue: masterShop.financials?.totalRevenue || 0,
+      expenses: masterShop.financials?.totalExpenses || 0,
+      debt: masterShop.financials?.totalDebt || 0,
+      profit: (masterShop.financials?.totalRevenue || 0) - (masterShop.financials?.totalExpenses || 0)
+    });
+
+    // Connected shops financials
+    for (const connection of masterShop.connectedShops) {
+      if (connection.isActive) {
+        const connectedShop = await Shop.findById(connection.shopId);
+        if (connectedShop) {
+          const shopRevenue = connectedShop.financials?.totalRevenue || 0;
+          const shopExpenses = connectedShop.financials?.totalExpenses || 0;
+          const shopDebt = connectedShop.financials?.totalDebt || 0;
+
+          totalRevenue += shopRevenue;
+          totalExpenses += shopExpenses;
+          totalDebt += shopDebt;
+
+          shopReports.push({
+            shopId: connectedShop._id,
+            shopName: connectedShop.name,
+            shopType: connection.connectionType,
+            revenue: shopRevenue,
+            expenses: shopExpenses,
+            debt: shopDebt,
+            profit: shopRevenue - shopExpenses
+          });
+        }
+      }
+    }
+
+    // User's personal debt across shops
+    const userTotalDebt = user.getTotalDebtAcrossShops();
+
+    return {
+      userId: userId,
+      masterShopId: user.masterShop,
+      reportPeriod: dateRange,
+      networkSummary: {
+        totalShops: shopReports.length,
+        totalRevenue: totalRevenue,
+        totalExpenses: totalExpenses,
+        totalProfit: totalRevenue - totalExpenses,
+        totalNetworkDebt: totalDebt,
+        userPersonalDebt: userTotalDebt
+      },
+      shopBreakdown: shopReports,
+      generatedAt: new Date()
+    };
+  } catch (error) {
+    throw new Error(`Get consolidated report failed: ${error.message}`);
+  }
+};
+
+/**
+ * Record a cross-shop transaction
+ */
+const recordCrossShopTransaction = async (transactionData) => {
+  try {
+    const { fromShop, toShop, userId, transactionType, amount, description, metadata = {} } = transactionData;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const transaction = new CrossShopTransaction({
+      fromShop,
+      toShop,
+      user: userId,
+      masterShop: user.masterShop,
+      transactionType,
+      amount,
+      description,
+      metadata,
+      status: 'pending'
+    });
+
+    await transaction.save();
+
+    // Update shop financials if it's a debt transaction
+    if (transactionType === 'debt') {
+      await user.updateShopDebt(toShop, user.getDebtForShop(toShop) + amount);
+    }
+
+    return transaction;
+  } catch (error) {
+    throw new Error(`Record cross-shop transaction failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get user's debt summary across all shops
+ */
+const getUserDebtSummary = async (userId) => {
+  try {
+    const user = await User.findById(userId).populate('financials.shopDebts.shopId', 'name');
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const debtDetails = user.financials.shopDebts.map(debt => ({
+      shopId: debt.shopId._id,
+      shopName: debt.shopId.name,
+      amountOwed: debt.amountOwed,
+      lastUpdated: debt.lastUpdated
+    }));
+
+    return {
+      userId: userId,
+      userName: user.name,
+      totalDebt: user.financials.totalOwed,
+      masterShopId: user.masterShop,
+      masterShopBalance: user.financials.masterShopBalance,
+      debtByShop: debtDetails,
+      lastCalculated: new Date()
+    };
+  } catch (error) {
+    throw new Error(`Get user debt summary failed: ${error.message}`);
+  }
+};
+
+/**
+ * Transfer funds between shops in the network
+ */
+const transferBetweenShops = async (fromShopId, toShopId, amount, userId, description = '') => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Verify user has access to both shops
+    const hasFromAccess = user.hasShopAccess(fromShopId);
+    const hasToAccess = user.hasShopAccess(toShopId);
+
+    if (!hasFromAccess || !hasToAccess) {
+      throw new Error('User does not have access to one or both shops');
+    }
+
+    const fromShop = await Shop.findById(fromShopId);
+    const toShop = await Shop.findById(toShopId);
+
+    if (!fromShop || !toShop) {
+      throw new Error('One or both shops not found');
+    }
+
+    // Record the transaction
+    const transaction = await recordCrossShopTransaction({
+      fromShop: fromShopId,
+      toShop: toShopId,
+      userId: userId,
+      transactionType: 'transfer',
+      amount: amount,
+      description: description || `Transfer from ${fromShop.name} to ${toShop.name}`,
+      metadata: {
+        transferType: 'internal',
+        reference: `TRANS-${Date.now()}`
+      }
+    });
+
+    // Update shop financials
+    fromShop.financials.interShopTransactions.push({
+      withShop: toShopId,
+      amount: -amount, // Negative for outgoing
+      type: 'transfer',
+      description: description
+    });
+
+    toShop.financials.interShopTransactions.push({
+      withShop: fromShopId,
+      amount: amount, // Positive for incoming
+      type: 'transfer',
+      description: description
+    });
+
+    await Promise.all([fromShop.save(), toShop.save()]);
+
+    // Mark transaction as completed
+    transaction.status = 'completed';
+    await transaction.save();
+
+    return {
+      transaction: transaction,
+      message: `Successfully transferred ${amount} from ${fromShop.name} to ${toShop.name}`
+    };
+  } catch (error) {
+    throw new Error(`Transfer between shops failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get all cross-shop transactions for a user
+ */
+const getUserCrossShopTransactions = async (userId, filters = {}) => {
+  try {
+    let query = { user: userId };
+
+    // Apply filters
+    if (filters.transactionType) {
+      query.transactionType = filters.transactionType;
+    }
+    if (filters.status) {
+      query.status = filters.status;
+    }
+    if (filters.fromDate && filters.toDate) {
+      query.createdAt = {
+        $gte: new Date(filters.fromDate),
+        $lte: new Date(filters.toDate)
+      };
+    }
+
+    const transactions = await CrossShopTransaction.find(query)
+      .populate('fromShop', 'name')
+      .populate('toShop', 'name')
+      .populate('masterShop', 'name')
+      .sort({ createdAt: -1 })
+      .limit(filters.limit || 50);
+
+    return {
+      userId: userId,
+      totalTransactions: transactions.length,
+      transactions: transactions.map(trans => ({
+        id: trans._id,
+        fromShop: trans.fromShop,
+        toShop: trans.toShop,
+        masterShop: trans.masterShop,
+        transactionType: trans.transactionType,
+        amount: trans.amount,
+        currency: trans.currency,
+        description: trans.description,
+        status: trans.status,
+        metadata: trans.metadata,
+        createdAt: trans.createdAt,
+        updatedAt: trans.updatedAt
+      }))
+    };
+  } catch (error) {
+    throw new Error(`Get user cross-shop transactions failed: ${error.message}`);
+  }
+};
+
+/**
+ * Disconnect a shop from master shop network
+ */
+const disconnectShopFromMaster = async (shopId, userId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
+
+    // Check if user owns this shop
+    const ownedShop = user.ownedShops.find(
+      ownedShop => ownedShop.shopId.toString() === shopId.toString()
+    );
+
+    if (!ownedShop) {
+      throw new Error('User does not own this shop');
+    }
+
+    if (!shop.masterShop) {
+      throw new Error('Shop is not connected to any master shop');
+    }
+
+    const masterShop = await Shop.findById(shop.masterShop);
+    if (masterShop) {
+      // Remove from master shop's connected shops
+      masterShop.connectedShops = masterShop.connectedShops.filter(
+        conn => conn.shopId.toString() !== shopId.toString()
+      );
+      await masterShop.save();
+    }
+
+    // Update the shop
+    shop.masterShop = null;
+    shop.shopLevel = 'independent';
+    await shop.save();
+
+    return {
+      message: 'Shop disconnected from master successfully',
+      shop: shop,
+      previousMaster: masterShop ? masterShop.name : 'Unknown'
+    };
+  } catch (error) {
+    throw new Error(`Disconnect shop from master failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get shop network hierarchy for a user
+ */
+const getShopNetworkHierarchy = async (userId) => {
+  try {
+    const user = await User.findById(userId)
+      .populate('ownedShops.shopId', 'name description shopLevel masterShop connectedShops')
+      .populate('masterShop', 'name description connectedShops');
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const hierarchy = {
+      userId: userId,
+      userName: user.name,
+      masterShop: null,
+      independentShops: [],
+      branchShops: [],
+      totalShops: user.ownedShops.length
+    };
+
+    for (const ownedShop of user.ownedShops) {
+      if (!ownedShop.shopId || !ownedShop.isActive) continue;
+
+      const shop = ownedShop.shopId;
+      const shopData = {
+        id: shop._id,
+        name: shop.name,
+        description: shop.description,
+        shopLevel: shop.shopLevel,
+        isMaster: ownedShop.isMaster,
+        connectedShopsCount: shop.connectedShops ? shop.connectedShops.length : 0
+      };
+
+      if (shop.shopLevel === 'master') {
+        hierarchy.masterShop = {
+          ...shopData,
+          connectedShops: shop.connectedShops.map(conn => ({
+            shopId: conn.shopId,
+            connectionType: conn.connectionType,
+            connectedAt: conn.connectedAt,
+            isActive: conn.isActive
+          }))
+        };
+      } else if (shop.shopLevel === 'branch') {
+        hierarchy.branchShops.push({
+          ...shopData,
+          masterShopId: shop.masterShop
+        });
+      } else {
+        hierarchy.independentShops.push(shopData);
+      }
+    }
+
+    return hierarchy;
+  } catch (error) {
+    throw new Error(`Get shop network hierarchy failed: ${error.message}`);
+  }
+};
+
+/**
+ * Update shop debt for a user
+ */
+const updateUserShopDebt = async (userId, shopId, newAmount, description = '') => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
+
+    const previousAmount = user.getDebtForShop(shopId);
+    await user.updateShopDebt(shopId, newAmount);
+
+    // Record the debt change as a transaction
+    const transaction = await recordCrossShopTransaction({
+      fromShop: null, // System generated
+      toShop: shopId,
+      userId: userId,
+      transactionType: 'debt',
+      amount: newAmount - previousAmount,
+      description: description || `Debt adjustment for ${shop.name}`,
+      metadata: {
+        previousAmount: previousAmount,
+        newAmount: newAmount,
+        adjustmentType: newAmount > previousAmount ? 'increase' : 'decrease'
+      }
+    });
+
+    return {
+      message: 'Shop debt updated successfully',
+      userId: userId,
+      shopId: shopId,
+      shopName: shop.name,
+      previousAmount: previousAmount,
+      newAmount: newAmount,
+      difference: newAmount - previousAmount,
+      transaction: transaction
+    };
+  } catch (error) {
+    throw new Error(`Update user shop debt failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get comprehensive shop network analytics
+ */
+const getShopNetworkAnalytics = async (userId, dateRange = {}) => {
+  try {
+    const network = await getMasterShopNetwork(userId);
+    if (!network.hasMasterShop) {
+      throw new Error('No master shop network found');
+    }
+
+    const financialReport = await getConsolidatedFinancialReport(userId, dateRange);
+    const debtSummary = await getUserDebtSummary(userId);
+    const transactions = await getUserCrossShopTransactions(userId, { limit: 100 });
+
+    // Calculate additional analytics
+    const analytics = {
+      networkOverview: {
+        totalShops: network.networkStats.totalShops,
+        masterShopRevenue: network.networkStats.masterShopRevenue,
+        totalNetworkRevenue: network.networkStats.totalNetworkRevenue,
+        averageRevenuePerShop: network.networkStats.totalNetworkRevenue / network.networkStats.totalShops
+      },
+      financialHealth: {
+        totalProfit: financialReport.networkSummary.totalProfit,
+        profitMargin: financialReport.networkSummary.totalRevenue > 0 ? 
+          (financialReport.networkSummary.totalProfit / financialReport.networkSummary.totalRevenue) * 100 : 0,
+        debtToRevenueRatio: financialReport.networkSummary.totalRevenue > 0 ?
+          (debtSummary.totalDebt / financialReport.networkSummary.totalRevenue) * 100 : 0
+      },
+      transactionAnalytics: {
+        totalTransactions: transactions.totalTransactions,
+        transactionTypes: transactions.transactions.reduce((acc, trans) => {
+          acc[trans.transactionType] = (acc[trans.transactionType] || 0) + 1;
+          return acc;
+        }, {}),
+        totalTransactionValue: transactions.transactions.reduce((sum, trans) => sum + trans.amount, 0)
+      },
+      shopPerformance: financialReport.shopBreakdown.map(shop => ({
+        shopId: shop.shopId,
+        shopName: shop.shopName,
+        shopType: shop.shopType,
+        profitMargin: shop.revenue > 0 ? (shop.profit / shop.revenue) * 100 : 0,
+        debtRatio: shop.revenue > 0 ? (shop.debt / shop.revenue) * 100 : 0,
+        performance: shop.profit > 0 ? 'profitable' : 'loss-making'
+      }))
+    };
+
+    return {
+      userId: userId,
+      reportPeriod: dateRange,
+      generatedAt: new Date(),
+      networkOverview: analytics.networkOverview,
+      financialHealth: analytics.financialHealth,
+      transactionAnalytics: analytics.transactionAnalytics,
+      shopPerformance: analytics.shopPerformance,
+      rawData: {
+        network: network,
+        financialReport: financialReport,
+        debtSummary: debtSummary,
+        recentTransactions: transactions.transactions.slice(0, 10)
+      }
+    };
+  } catch (error) {
+    throw new Error(`Get shop network analytics failed: ${error.message}`);
+  }
+};
+
+// ========================= UPDATED EXISTING FUNCTIONS FOR MASTER SHOP SYSTEM =========================
+
+// Updated Login Function with Master Shop support
 const loginUser = async (credentials) => {
   try {
     const { email, password } = credentials;
     
-    // Find user by email
-    const user = await User.findOne({ email }).populate('shopId');
+    // Find user by email and populate shops including master shop
+    const user = await User.findOne({ email })
+      .populate('shops.shopId')
+      .populate('currentShop')
+      .populate('masterShop');
     
     if (!user) {
       throw new Error('Invalid credentials');
@@ -134,9 +862,33 @@ const loginUser = async (credentials) => {
     user.lastLogin = new Date();
     await user.save();
     
-    // Generate JWT token
+    // Check if user has any shops
+    const hasShops = user.shops && user.shops.length > 0;
+    const hasMasterShop = user.masterShop !== null;
+    
+    // If user has shops but no current shop, set current shop
+    if (hasShops && !user.currentShop) {
+      // Prioritize master shop as current shop if available
+      if (hasMasterShop) {
+        user.currentShop = user.masterShop._id;
+      } else {
+        user.currentShop = user.shops[0].shopId._id;
+      }
+      await user.save();
+    }
+    
+    // Generate JWT token with master shop info
+    const tokenPayload = {
+      userId: user._id,
+      role: user.role,
+      hasShops,
+      hasMasterShop,
+      currentShop: user.currentShop,
+      masterShop: user.masterShop ? user.masterShop._id : null
+    };
+    
     const token = jwt.sign(
-      { userId: user._id, shopId: user.shopId._id, role: user.role },
+      tokenPayload,
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -145,45 +897,452 @@ const loginUser = async (credentials) => {
       user: {
         id: user._id,
         name: user.name,
+        email: user.email,
         role: user.role,
-        permissions: user.permissions,
-        shop: user.shopId
+        shops: user.shops,
+        ownedShops: user.ownedShops,
+        currentShop: user.currentShop,
+        masterShop: user.masterShop,
+        hasShops,
+        hasMasterShop,
+        totalDebt: user.getTotalDebtAcrossShops()
       },
-      token
+      token,
+      requiresShopCreation: !hasShops,
+      suggestMasterShopSetup: hasShops && !hasMasterShop && user.ownedShops && user.ownedShops.length > 1
     };
   } catch (error) {
     throw new Error(`Login failed: ${error.message}`);
   }
 };
 
-// ========================= SHOP MANAGEMENT FUNCTIONS =========================
-
-/**
- * Create a new shop
- */
-const createShop = async (shopData) => {
+// Updated Create Shop Function with Master Shop Option
+const createShop = async (shopData, userId, setAsMaster = false) => {
   try {
-    const newShop = new Shop(shopData);
-    const savedShop = await newShop.save();
-    return savedShop;
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Create the shop
+    const shop = new Shop({
+      ...shopData,
+      owner: userId,
+      shopLevel: setAsMaster ? 'master' : (user.masterShop ? 'branch' : 'independent'),
+      users: [{
+        userId: userId,
+        role: 'owner',
+        permissions: ['inventory', 'sales', 'reports', 'settings', 'users'],
+        isActive: true
+      }]
+    });
+
+    // If this should be connected to master shop and user has a master shop
+    if (!setAsMaster && user.masterShop) {
+      shop.masterShop = user.masterShop;
+      
+      // Add to master shop's connected shops
+      const masterShop = await Shop.findById(user.masterShop);
+      if (masterShop) {
+        masterShop.connectedShops.push({
+          shopId: shop._id,
+          connectionType: 'branch',
+          connectedAt: new Date(),
+          isActive: true,
+          financialSettings: {
+            shareRevenue: false,
+            consolidateReports: true,
+            sharedInventory: false
+          }
+        });
+        await masterShop.save();
+      }
+    }
+
+    await shop.save();
+    
+    // Update user's ownedShops array
+    user.ownedShops.push({
+      shopId: shop._id,
+      isMaster: setAsMaster,
+      isActive: true
+    });
+
+    // Update user's shops array for access
+    user.shops.push({
+      shopId: shop._id,
+      role: 'owner',
+      permissions: ['inventory', 'sales', 'reports', 'settings', 'users'],
+      isActive: true
+    });
+
+    // Set as master shop if specified or if it's the first owned shop
+    if (setAsMaster || (!user.masterShop && user.ownedShops.length === 1)) {
+      user.masterShop = shop._id;
+      shop.shopLevel = 'master';
+      shop.masterShop = null; // Master shop doesn't have a parent
+      await shop.save();
+      
+      // Update isMaster flag
+      const ownedShop = user.ownedShops.find(s => s.shopId.toString() === shop._id.toString());
+      if (ownedShop) {
+        ownedShop.isMaster = true;
+      }
+    }
+
+    // Set as current shop if it's the first shop or if it's master
+    if (user.shops.length === 1 || setAsMaster) {
+      user.currentShop = shop._id;
+    }
+
+    await user.save();
+
+    return await Shop.findById(shop._id)
+      .populate('owner')
+      .populate('masterShop', 'name');
   } catch (error) {
-    throw new Error(`Shop creation failed: ${error.message}`);
+    throw new Error(`Create shop failed: ${error.message}`);
   }
 };
 
-/**
- * Get shop details
- */
+// Updated Get Shop Function with Master Shop Context
 const getShop = async (shopId) => {
   try {
-    const shop = await Shop.findById(shopId).populate('owner');
+    const shop = await Shop.findById(shopId)
+      .populate('owner', 'name email')
+      .populate('users.userId', 'name email')
+      .populate('masterShop', 'name description')
+      .populate('connectedShops.shopId', 'name description');
+    
     if (!shop) {
       throw new Error('Shop not found');
     }
-    return shop;
+
+    // Add master shop context
+    const shopWithContext = {
+      ...shop.toObject(),
+      isMasterShop: shop.shopLevel === 'master',
+      hasConnectedShops: shop.connectedShops && shop.connectedShops.length > 0,
+      isConnectedToMaster: shop.masterShop !== null,
+      networkInfo: {
+        shopLevel: shop.shopLevel,
+        connectedShopsCount: shop.connectedShops ? shop.connectedShops.filter(s => s.isActive).length : 0,
+        masterShopName: shop.masterShop ? shop.masterShop.name : null
+      }
+    };
+
+    return shopWithContext;
   } catch (error) {
     throw new Error(`Failed to fetch shop: ${error.message}`);
   }
+};
+
+// Updated Get User Shops Function with Master Shop Priority
+const getUserShops = async (userId) => {
+  try {
+    const user = await User.findById(userId)
+      .populate({
+        path: 'shops.shopId',
+        select: 'name description address phone email isActive createdAt shopLevel masterShop',
+        match: { isActive: true },
+        populate: {
+          path: 'masterShop',
+          select: 'name'
+        }
+      })
+      .populate('masterShop', 'name description')
+      .populate('currentShop', 'name description');
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Filter out null shops (inactive ones) and sort by master shop first
+    const activeShops = user.shops
+      .filter(shop => shop.shopId !== null)
+      .sort((a, b) => {
+        // Master shop first
+        if (user.masterShop && a.shopId._id.toString() === user.masterShop._id.toString()) return -1;
+        if (user.masterShop && b.shopId._id.toString() === user.masterShop._id.toString()) return 1;
+        
+        // Then by creation date
+        return new Date(b.shopId.createdAt) - new Date(a.shopId.createdAt);
+      })
+      .map(shop => ({
+        ...shop.toObject(),
+        isMasterShop: user.masterShop && shop.shopId._id.toString() === user.masterShop._id.toString(),
+        isCurrentShop: user.currentShop && shop.shopId._id.toString() === user.currentShop._id.toString(),
+        networkLevel: shop.shopId.shopLevel,
+        masterShopName: shop.shopId.masterShop ? shop.shopId.masterShop.name : null
+      }));
+    
+    return {
+      userId: user._id,
+      userName: user.name,
+      currentShop: user.currentShop,
+      masterShop: user.masterShop,
+      hasMasterShop: user.masterShop !== null,
+      totalShops: activeShops.length,
+      totalOwnedShops: user.ownedShops ? user.ownedShops.filter(s => s.isActive).length : 0,
+      totalDebt: user.getTotalDebtAcrossShops(),
+      shops: activeShops
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch user shops: ${error.message}`);
+  }
+};
+
+// Updated Set Current Shop Function with Master Shop Validation
+const setCurrentShop = async (userId, shopId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if user has access to this shop
+    const hasAccess = user.shops.some(
+      shop => shop.shopId.toString() === shopId.toString() && shop.isActive
+    );
+    
+    if (!hasAccess) {
+      throw new Error('User does not have access to this shop');
+    }
+    
+    user.currentShop = shopId;
+    await user.save();
+    
+    const shop = await getShop(shopId);
+    
+    return {
+      ...shop,
+      switchedFromMaster: user.masterShop && user.masterShop.toString() !== shopId.toString(),
+      isMasterShop: user.masterShop && user.masterShop.toString() === shopId.toString()
+    };
+  } catch (error) {
+    throw new Error(`Failed to set current shop: ${error.message}`);
+  }
+};
+
+// Updated Get Current Shop Function with Master Shop Context
+const getCurrentShop = async (userId) => {
+  try {
+    const user = await User.findById(userId)
+      .populate({
+        path: 'currentShop',
+        select: 'name description address phone email isActive createdAt shopLevel masterShop connectedShops',
+        populate: {
+          path: 'masterShop',
+          select: 'name'
+        }
+      })
+      .populate('masterShop', 'name');
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    if (!user.currentShop) {
+      throw new Error('No current shop set');
+    }
+    
+    const currentShop = user.currentShop;
+    const isMasterShop = user.masterShop && currentShop._id.toString() === user.masterShop._id.toString();
+    
+    return {
+      ...currentShop.toObject(),
+      isMasterShop,
+      isConnectedToMaster: currentShop.masterShop !== null,
+      userDebtInThisShop: user.getDebtForShop(currentShop._id),
+      networkContext: {
+        userMasterShop: user.masterShop,
+        shopLevel: currentShop.shopLevel,
+        connectedShopsCount: currentShop.connectedShops ? currentShop.connectedShops.filter(s => s.isActive).length : 0
+      }
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch current shop: ${error.message}`);
+  }
+};
+
+// Updated Delete Shop Function with Master Shop Considerations
+const deleteShop = async (shopId, userId) => {
+  try {
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
+    
+    // Check if user is the owner
+    if (shop.owner.toString() !== userId.toString()) {
+      throw new Error('Only shop owner can delete the shop');
+    }
+    
+    const user = await User.findById(userId);
+    const isMasterShop = user.masterShop && user.masterShop.toString() === shopId.toString();
+    
+    // If deleting master shop, need to handle master shop transition
+    if (isMasterShop) {
+      // Check if user has other owned shops
+      const otherOwnedShops = user.ownedShops.filter(
+        s => s.shopId.toString() !== shopId.toString() && s.isActive
+      );
+      
+      if (otherOwnedShops.length > 0) {
+        // Suggest new master shop (first owned shop)
+        const newMasterShopId = otherOwnedShops[0].shopId;
+        user.masterShop = newMasterShopId;
+        
+        // Update the new master shop
+        const newMasterShop = await Shop.findById(newMasterShopId);
+        if (newMasterShop) {
+          newMasterShop.shopLevel = 'master';
+          newMasterShop.masterShop = null;
+          await newMasterShop.save();
+        }
+        
+        // Update owned shops array
+        const newMasterOwned = user.ownedShops.find(s => s.shopId.toString() === newMasterShopId.toString());
+        if (newMasterOwned) {
+          newMasterOwned.isMaster = true;
+        }
+      } else {
+        // No other shops, remove master shop
+        user.masterShop = null;
+      }
+    }
+    
+    // If this shop was connected to a master, remove it from master's connected shops
+    if (shop.masterShop) {
+      const masterShop = await Shop.findById(shop.masterShop);
+      if (masterShop) {
+        masterShop.connectedShops = masterShop.connectedShops.filter(
+          conn => conn.shopId.toString() !== shopId.toString()
+        );
+        await masterShop.save();
+      }
+    }
+    
+    // If this is a master shop, disconnect all connected shops
+    if (shop.shopLevel === 'master' && shop.connectedShops.length > 0) {
+      for (const connection of shop.connectedShops) {
+        const connectedShop = await Shop.findById(connection.shopId);
+        if (connectedShop) {
+          connectedShop.masterShop = null;
+          connectedShop.shopLevel = 'independent';
+          await connectedShop.save();
+        }
+      }
+    }
+    
+    // Soft delete - mark as inactive
+    shop.isActive = false;
+    shop.deletedAt = new Date();
+    await shop.save();
+    
+    // Remove shop from user's shops and ownedShops arrays
+    user.shops = user.shops.filter(s => s.shopId.toString() !== shopId.toString());
+    user.ownedShops = user.ownedShops.filter(s => s.shopId.toString() !== shopId.toString());
+    
+    // Update current shop if this was the current shop
+    if (user.currentShop && user.currentShop.toString() === shopId.toString()) {
+      if (user.masterShop) {
+        user.currentShop = user.masterShop;
+      } else if (user.shops.length > 0) {
+        user.currentShop = user.shops[0].shopId;
+      } else {
+        user.currentShop = null;
+      }
+    }
+    
+    await user.save();
+    
+    // Remove shop from all other users' shops array
+    await User.updateMany(
+      { 'shops.shopId': shopId },
+      { 
+        $pull: { shops: { shopId: shopId } }
+      }
+    );
+    
+    return { 
+      message: 'Shop deleted successfully',
+      wasMasterShop: isMasterShop,
+      newMasterShop: isMasterShop && user.masterShop ? user.masterShop : null,
+      affectedConnectedShops: shop.shopLevel === 'master' ? shop.connectedShops.length : 0
+    };
+  } catch (error) {
+    throw new Error(`Delete shop failed: ${error.message}`);
+  }
+};
+
+// Updated Get All Shops Function with Master Shop Filtering
+const getAllShops = async (page = 1, limit = 10, searchTerm = '', filterByLevel = '') => {
+  try {
+    const skip = (page - 1) * limit;
+    
+    let query = { isActive: true };
+    
+    // Add search functionality
+    if (searchTerm) {
+      query.$or = [
+        { name: { $regex: searchTerm, $options: 'i' } },
+        { description: { $regex: searchTerm, $options: 'i' } },
+        { 'address.city': { $regex: searchTerm, $options: 'i' } }
+      ];
+    }
+    
+    // Filter by shop level (master, branch, independent)
+    if (filterByLevel && ['master', 'branch', 'independent'].includes(filterByLevel)) {
+      query.shopLevel = filterByLevel;
+    }
+    
+    const shops = await Shop.find(query)
+      .populate('owner', 'name email')
+      .populate('masterShop', 'name')
+      .select('name description address phone email createdAt shopLevel masterShop')
+      .sort({ shopLevel: 1, createdAt: -1 }) // Master shops first
+      .skip(skip)
+      .limit(limit);
+    
+    const total = await Shop.countDocuments(query);
+    
+    // Add network context to each shop
+    const shopsWithContext = shops.map(shop => ({
+      ...shop.toObject(),
+      isMasterShop: shop.shopLevel === 'master',
+      isConnectedToMaster: shop.masterShop !== null,
+      masterShopName: shop.masterShop ? shop.masterShop.name : null
+    }));
+    
+    return {
+      shops: shopsWithContext,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalShops: total,
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1
+      },
+      filters: {
+        searchTerm,
+        filterByLevel,
+        availableFilters: ['master', 'branch', 'independent']
+      }
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch shops: ${error.message}`);
+  }
+};
+
+
+
+
+/**
+ * Get shop by ID (alias for getShop)
+ */
+const getShopById = async (shopId) => {
+  return await getShop(shopId);
 };
 
 /**
@@ -195,7 +1354,7 @@ const updateShop = async (shopId, updates) => {
       shopId,
       updates,
       { new: true, runValidators: true }
-    );
+    ).populate('owner', 'name email');
     
     if (!updatedShop) {
       throw new Error('Shop not found');
@@ -206,6 +1365,436 @@ const updateShop = async (shopId, updates) => {
     throw new Error(`Shop update failed: ${error.message}`);
   }
 };
+
+
+
+/**
+ * Permanently delete shop (hard delete)
+ */
+const permanentDeleteShop = async (shopId, userId) => {
+  try {
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
+    
+    // Check if user is the owner
+    if (shop.owner.toString() !== userId.toString()) {
+      throw new Error('Only shop owner can permanently delete the shop');
+    }
+    
+    // Remove shop from all users' shops array
+    await User.updateMany(
+      { 'shops.shopId': shopId },
+      { 
+        $pull: { shops: { shopId: shopId } },
+        $unset: { currentShop: shopId }
+      }
+    );
+    
+    // Update users who had this as current shop
+    const usersWithThisCurrentShop = await User.find({ currentShop: shopId });
+    for (const user of usersWithThisCurrentShop) {
+      if (user.shops.length > 0) {
+        user.currentShop = user.shops[0].shopId;
+      } else {
+        user.currentShop = null;
+      }
+      await user.save();
+    }
+    
+    // Hard delete the shop
+    await Shop.findByIdAndDelete(shopId);
+    
+    return { message: 'Shop permanently deleted successfully' };
+  } catch (error) {
+    throw new Error(`Permanent delete shop failed: ${error.message}`);
+  }
+};
+
+
+const checkShopPermission = async (userId, shopId, permission) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    const shopAccess = user.shops.find(
+      shop => shop.shopId.toString() === shopId.toString() && shop.isActive
+    );
+    
+    if (!shopAccess) {
+      return false;
+    }
+    
+    return shopAccess.permissions.includes(permission);
+  } catch (error) {
+    throw new Error(`Permission check failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get shop statistics
+ */
+const getShopStats = async (shopId) => {
+  try {
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
+    
+    // You can expand this based on your other models (Products, Sales, etc.)
+    const stats = {
+      totalUsers: shop.users.filter(user => user.isActive).length,
+      shopAge: Math.floor((new Date() - shop.createdAt) / (1000 * 60 * 60 * 24)), // days
+      isActive: shop.isActive,
+      createdAt: shop.createdAt,
+      // Add more stats as needed
+      // totalProducts: await Product.countDocuments({ shopId, isActive: true }),
+      // totalSales: await Sale.countDocuments({ shopId }),
+    };
+    
+    return stats;
+  } catch (error) {
+    throw new Error(`Failed to fetch shop stats: ${error.message}`);
+  }
+};
+
+
+/**
+ * Get all shops for a specific user (by userId)
+ */
+const getShopsForUser = async (userId) => {
+  try {
+    const user = await User.findById(userId).populate({
+      path: 'shops.shopId',
+      select: 'name description address phone email isActive createdAt owner',
+      populate: {
+        path: 'owner',
+        select: 'name email'
+      }
+    });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Filter out inactive shops and format the response
+    const activeShops = user.shops
+      .filter(shop => shop.isActive && shop.shopId && shop.shopId.isActive)
+      .map(shop => ({
+        shopId: shop.shopId._id,
+        shopDetails: {
+          name: shop.shopId.name,
+          description: shop.shopId.description,
+          address: shop.shopId.address,
+          phone: shop.shopId.phone,
+          email: shop.shopId.email,
+          owner: shop.shopId.owner,
+          createdAt: shop.shopId.createdAt
+        },
+        userRole: shop.role,
+        permissions: shop.permissions,
+        joinedAt: shop.joinedAt,
+        isCurrentShop: user.currentShop && user.currentShop.toString() === shop.shopId._id.toString()
+      }));
+    
+    return {
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      currentShop: user.currentShop,
+      totalShops: activeShops.length,
+      shops: activeShops
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch user shops: ${error.message}`);
+  }
+};
+
+/**
+ * Get all shops by userId (alias for getShopsForUser)
+ */
+const getAllShopsByUserId = async (userId) => {
+  return await getShopsForUser(userId);
+};
+
+/**
+ * Get user's shops with specific role
+ */
+const getUserShopsByRole = async (userId, role) => {
+  try {
+    const user = await User.findById(userId).populate({
+      path: 'shops.shopId',
+      select: 'name description address phone email isActive createdAt',
+      match: { isActive: true }
+    });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    const roleShops = user.shops
+      .filter(shop => shop.role === role && shop.isActive && shop.shopId)
+      .map(shop => ({
+        shopId: shop.shopId._id,
+        shopDetails: shop.shopId,
+        userRole: shop.role,
+        permissions: shop.permissions,
+        joinedAt: shop.joinedAt
+      }));
+    
+    return {
+      userId: user._id,
+      userName: user.name,
+      role: role,
+      totalShops: roleShops.length,
+      shops: roleShops
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch user shops by role: ${error.message}`);
+  }
+};
+
+/**
+ * Get shops where user is owner
+ */
+const getUserOwnedShops = async (userId) => {
+  return await getUserShopsByRole(userId, 'owner');
+};
+
+/**
+ * Get shops where user is manager
+ */
+const getUserManagedShops = async (userId) => {
+  return await getUserShopsByRole(userId, 'manager');
+};
+
+/**
+ * Get shops where user is staff
+ */
+const getUserStaffShops = async (userId) => {
+  return await getUserShopsByRole(userId, 'staff');
+};
+
+/**
+ * Get user's shops with specific permission
+ */
+const getUserShopsByPermission = async (userId, permission) => {
+  try {
+    const user = await User.findById(userId).populate({
+      path: 'shops.shopId',
+      select: 'name description address phone email isActive createdAt',
+      match: { isActive: true }
+    });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    const permissionShops = user.shops
+      .filter(shop => 
+        shop.isActive && 
+        shop.shopId && 
+        shop.permissions.includes(permission)
+      )
+      .map(shop => ({
+        shopId: shop.shopId._id,
+        shopDetails: shop.shopId,
+        userRole: shop.role,
+        permissions: shop.permissions,
+        joinedAt: shop.joinedAt
+      }));
+    
+    return {
+      userId: user._id,
+      userName: user.name,
+      permission: permission,
+      totalShops: permissionShops.length,
+      shops: permissionShops
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch user shops by permission: ${error.message}`);
+  }
+};
+
+/**
+ * Get detailed shop access info for user
+ */
+const getUserShopAccess = async (userId, shopId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    const shopAccess = user.shops.find(shop => 
+      shop.shopId.toString() === shopId.toString()
+    );
+    
+    if (!shopAccess) {
+      return {
+        hasAccess: false,
+        message: 'User does not have access to this shop'
+      };
+    }
+    
+    const shop = await Shop.findById(shopId).select('name description isActive');
+    
+    return {
+      hasAccess: shopAccess.isActive && shop.isActive,
+      shopId: shopId,
+      shopName: shop.name,
+      userRole: shopAccess.role,
+      permissions: shopAccess.permissions,
+      joinedAt: shopAccess.joinedAt,
+      isActive: shopAccess.isActive,
+      isCurrentShop: user.currentShop && user.currentShop.toString() === shopId.toString()
+    };
+  } catch (error) {
+    throw new Error(`Failed to get user shop access: ${error.message}`);
+  }
+};
+
+/**
+ * Get user's current shop details
+ */
+const getUserCurrentShop = async (userId) => {
+  try {
+    const user = await User.findById(userId).populate({
+      path: 'currentShop',
+      select: 'name description address phone email isActive createdAt owner',
+      populate: {
+        path: 'owner',
+        select: 'name email'
+      }
+    });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    if (!user.currentShop) {
+      return {
+        hasCurrentShop: false,
+        message: 'No current shop set for user'
+      };
+    }
+    
+    // Get user's role and permissions in current shop
+    const shopAccess = user.shops.find(shop => 
+      shop.shopId.toString() === user.currentShop._id.toString()
+    );
+    
+    return {
+      hasCurrentShop: true,
+      shopId: user.currentShop._id,
+      shopDetails: user.currentShop,
+      userRole: shopAccess ? shopAccess.role : null,
+      permissions: shopAccess ? shopAccess.permissions : [],
+      joinedAt: shopAccess ? shopAccess.joinedAt : null
+    };
+  } catch (error) {
+    throw new Error(`Failed to get user current shop: ${error.message}`);
+  }
+};
+
+/**
+ * Get users for a specific shop
+ */
+const getShopUsers = async (shopId) => {
+  try {
+    const users = await User.find({
+      'shops.shopId': shopId,
+      'shops.isActive': true,
+      isActive: true
+    }).select('name email phone role shops lastLogin createdAt');
+    
+    const shopUsers = users.map(user => {
+      const shopAccess = user.shops.find(shop => 
+        shop.shopId.toString() === shopId.toString()
+      );
+      
+      return {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        globalRole: user.role,
+        shopRole: shopAccess.role,
+        permissions: shopAccess.permissions,
+        joinedAt: shopAccess.joinedAt,
+        lastLogin: user.lastLogin,
+        isCurrentShop: user.currentShop && user.currentShop.toString() === shopId.toString()
+      };
+    });
+    
+    return {
+      shopId: shopId,
+      totalUsers: shopUsers.length,
+      users: shopUsers
+    };
+  } catch (error) {
+    throw new Error(`Failed to get shop users: ${error.message}`);
+  }
+};
+
+/**
+ * Search users across shops
+ */
+const searchUsersInShops = async (searchTerm, shopIds = []) => {
+  try {
+    let query = {
+      isActive: true,
+      $or: [
+        { name: { $regex: searchTerm, $options: 'i' } },
+        { email: { $regex: searchTerm, $options: 'i' } },
+        { phone: { $regex: searchTerm, $options: 'i' } }
+      ]
+    };
+    
+    // If specific shop IDs provided, filter by those
+    if (shopIds.length > 0) {
+      query['shops.shopId'] = { $in: shopIds };
+      query['shops.isActive'] = true;
+    }
+    
+    const users = await User.find(query)
+      .select('name email phone role shops lastLogin')
+      .populate({
+        path: 'shops.shopId',
+        select: 'name'
+      });
+    
+    const searchResults = users.map(user => ({
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      globalRole: user.role,
+      shops: user.shops
+        .filter(shop => shop.isActive && shop.shopId)
+        .map(shop => ({
+          shopId: shop.shopId._id,
+          shopName: shop.shopId.name,
+          role: shop.role,
+          permissions: shop.permissions
+        })),
+      lastLogin: user.lastLogin
+    }));
+    
+    return {
+      searchTerm: searchTerm,
+      totalResults: searchResults.length,
+      users: searchResults
+    };
+  } catch (error) {
+    throw new Error(`User search failed: ${error.message}`);
+  }
+};
+
+
 
 // ========================= CATEGORY MANAGEMENT FUNCTIONS =========================
 
@@ -1486,9 +3075,53 @@ runDailyTasks,
   loginUser,
   
   // Shop Management
+ 
   createShop,
   getShop,
+  getShopById, // Alias
   updateShop,
+  deleteShop,
+  permanentDeleteShop,
+  getUserShops,
+  getAllShops,
+  setCurrentShop,
+  getCurrentShop,
+  checkShopPermission,
+  getShopStats,
+  getShopsForUser,
+  getAllShopsByUserId, // Alias
+  getUserShopsByRole,
+  getUserOwnedShops,
+  getUserManagedShops,
+  getUserStaffShops,
+  getUserShopsByPermission,
+  getUserShopAccess,
+  getUserCurrentShop, // Alias
+  getShopUsers,
+  searchUsersInShops,
+  
+  // Master shop management
+  createShopWithMasterOption,
+  setMasterShop,
+  connectShopToMaster,
+  disconnectShopFromMaster,
+  
+  // Network operations
+  getMasterShopNetwork,
+  getShopNetworkHierarchy,
+  getShopNetworkAnalytics,
+  
+  // Financial operations
+  getConsolidatedFinancialReport,
+  getUserDebtSummary,
+  updateUserShopDebt,
+  transferBetweenShops,
+  
+  // Transaction management
+  recordCrossShopTransaction,
+  getUserCrossShopTransactions,
+  
+
   
   // Category Management
   createCategory,

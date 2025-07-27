@@ -20,7 +20,7 @@ const connectDB = async () => {
   }
 };
 
-// User Schema (Shop Owners, Managers, Staff)
+// Enhanced User Schema with Master Shop concept
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -33,33 +33,117 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true
   },
-  phone: {
-    type: String,
-    required: true,
-    unique: true
-  },
   password: {
     type: String,
     required: true,
     minlength: 6
   },
+  phone: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  whatsappNumber: {
+    type: String,
+    required: false
+  },
   role: {
     type: String,
     enum: ['owner', 'manager', 'staff'],
-    default: 'staff'
+    default: 'owner'
   },
-  shopId: {
+  // Master shop - the primary shop that connects all other shops
+  masterShop: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Shop',
-    required: true
+    default: null
   },
-  permissions: {
+  // Array of shops the user owns (not just has access to)
+  ownedShops: [{
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shop',
+      required: true
+    },
+    isMaster: {
+      type: Boolean,
+      default: false
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  }],
+  // Array of shops the user has access to (including owned shops)
+  shops: [{
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shop',
+      required: true
+    },
+    role: {
+      type: String,
+      enum: ['owner', 'manager', 'staff'],
+      default: 'staff'
+    },
+    permissions: [{
+      type: String,
+      enum: ['inventory', 'sales', 'reports', 'settings', 'users', 'customers', 'refunds']
+    }],
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  // Current active shop for the session
+  currentShop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop'
+  },
+  // Financial tracking across shops
+  financials: {
+    totalOwed: {
+      type: Number,
+      default: 0
+    },
+    // Debt owed to each shop
+    shopDebts: [{
+      shopId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Shop'
+      },
+      amountOwed: {
+        type: Number,
+        default: 0
+      },
+      lastUpdated: {
+        type: Date,
+        default: Date.now
+      }
+    }],
+    // Consolidated financial summary
+    masterShopBalance: {
+      type: Number,
+      default: 0
+    }
+  },
+  // Enhanced permissions for backward compatibility
+  globalPermissions: {
     canViewReports: { type: Boolean, default: false },
     canManageInventory: { type: Boolean, default: false },
     canManageStaff: { type: Boolean, default: false },
     canViewProfits: { type: Boolean, default: false },
     canProcessRefunds: { type: Boolean, default: false },
-    canManageCustomers: { type: Boolean, default: false }
+    canManageCustomers: { type: Boolean, default: false },
+    canManageMasterShop: { type: Boolean, default: false }
   },
   isActive: {
     type: Boolean,
@@ -69,15 +153,36 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  whatsappNumber: {
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationToken: String,
+  resetPasswordToken: String,
+  resetPasswordExpiry: Date,
+  profileImage: {
     type: String,
-    required: false
+    default: null
+  },
+  preferences: {
+    language: {
+      type: String,
+      default: 'en'
+    },
+    currency: {
+      type: String,
+      default: 'USD'
+    },
+    timezone: {
+      type: String,
+      default: 'UTC'
+    }
   }
 }, {
   timestamps: true
 });
 
-// Shop Schema
+// Enhanced Shop Schema with Master Shop connections
 const shopSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -102,11 +207,74 @@ const shopSchema = new mongoose.Schema({
     type: String,
     lowercase: true
   },
+  // Primary owner of the shop
   owner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
+  // Master shop relationship
+  masterShop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop',
+    default: null
+  },
+  // Child shops connected to this master shop
+  connectedShops: [{
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shop'
+    },
+    connectionType: {
+      type: String,
+      enum: ['branch', 'subsidiary', 'partner'],
+      default: 'branch'
+    },
+    connectedAt: {
+      type: Date,
+      default: Date.now
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    // Financial relationship
+    financialSettings: {
+      shareRevenue: { type: Boolean, default: false },
+      consolidateReports: { type: Boolean, default: true },
+      sharedInventory: { type: Boolean, default: false }
+    }
+  }],
+  // Shop hierarchy level
+  shopLevel: {
+    type: String,
+    enum: ['master', 'branch', 'independent'],
+    default: 'independent'
+  },
+  // All users associated with this shop
+  users: [{
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    role: {
+      type: String,
+      enum: ['owner', 'manager', 'staff'],
+      default: 'staff'
+    },
+    permissions: [{
+      type: String,
+      enum: ['inventory', 'sales', 'reports', 'settings', 'users']
+    }],
+    addedAt: {
+      type: Date,
+      default: Date.now
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  }],
   businessType: {
     type: String,
     enum: ['mini-mart', 'provision-store', 'supermarket', 'cosmetic-shop', 'spare-parts', 'boutique', 'other'],
@@ -118,12 +286,35 @@ const shopSchema = new mongoose.Schema({
   },
   subscriptionPlan: {
     type: String,
-    enum: ['free', 'pro'],
+    enum: ['free', 'pro', 'enterprise'],
     default: 'free'
   },
   subscriptionExpiry: {
     type: Date,
-    default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+    default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  },
+  // Financial tracking for the shop
+  financials: {
+    totalRevenue: { type: Number, default: 0 },
+    totalExpenses: { type: Number, default: 0 },
+    totalDebt: { type: Number, default: 0 },
+    // Cross-shop transactions
+    interShopTransactions: [{
+      withShop: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Shop'
+      },
+      amount: Number,
+      type: {
+        type: String,
+        enum: ['transfer', 'loan', 'payment', 'revenue_share']
+      },
+      description: String,
+      date: {
+        type: Date,
+        default: Date.now
+      }
+    }]
   },
   settings: {
     enableLoyaltyProgram: { type: Boolean, default: false },
@@ -132,7 +323,11 @@ const shopSchema = new mongoose.Schema({
     autoBackup: { type: Boolean, default: true },
     lowStockThreshold: { type: Number, default: 10 },
     receiptTemplate: String,
-    taxRate: { type: Number, default: 0 }
+    taxRate: { type: Number, default: 0 },
+    // Master shop settings
+    consolidateReports: { type: Boolean, default: false },
+    shareInventoryWithMaster: { type: Boolean, default: false },
+    allowMasterShopAccess: { type: Boolean, default: true }
   },
   isActive: {
     type: Boolean,
@@ -141,6 +336,189 @@ const shopSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// New Schema for tracking cross-shop transactions and debts
+const crossShopTransactionSchema = new mongoose.Schema({
+  fromShop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop',
+    required: true
+  },
+  toShop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop',
+    required: true
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  masterShop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop'
+  },
+  transactionType: {
+    type: String,
+    enum: ['debt', 'payment', 'transfer', 'loan', 'revenue_share'],
+    required: true
+  },
+  amount: {
+    type: Number,
+    required: true
+  },
+  currency: {
+    type: String,
+    default: 'GHS'
+  },
+  description: String,
+  status: {
+    type: String,
+    enum: ['pending', 'completed', 'cancelled'],
+    default: 'pending'
+  },
+  metadata: {
+    invoiceNumber: String,
+    reference: String,
+    dueDate: Date,
+    paymentMethod: String
+  }
+}, {
+  timestamps: true
+});
+
+// Enhanced User Methods for Master Shop functionality
+userSchema.methods.setMasterShop = function(shopId) {
+  this.masterShop = shopId;
+  
+  // Update the ownedShops array to mark the master shop
+  this.ownedShops.forEach(shop => {
+    shop.isMaster = shop.shopId.toString() === shopId.toString();
+  });
+  
+  return this.save();
+};
+
+userSchema.methods.getMasterShop = function() {
+  return this.masterShop;
+};
+
+userSchema.methods.getAllConnectedShops = async function() {
+  if (!this.masterShop) {
+    return this.ownedShops;
+  }
+  
+  // Get the master shop and all its connected shops
+  const masterShop = await Shop.findById(this.masterShop).populate('connectedShops.shopId');
+  
+  const allShops = [masterShop];
+  if (masterShop.connectedShops) {
+    masterShop.connectedShops.forEach(connected => {
+      if (connected.isActive) {
+        allShops.push(connected.shopId);
+      }
+    });
+  }
+  
+  return allShops;
+};
+
+userSchema.methods.getTotalDebtAcrossShops = function() {
+  return this.financials.shopDebts.reduce((total, debt) => total + debt.amountOwed, 0);
+};
+
+userSchema.methods.getDebtForShop = function(shopId) {
+  const shopDebt = this.financials.shopDebts.find(
+    debt => debt.shopId.toString() === shopId.toString()
+  );
+  return shopDebt ? shopDebt.amountOwed : 0;
+};
+
+userSchema.methods.updateShopDebt = function(shopId, amount) {
+  const existingDebt = this.financials.shopDebts.find(
+    debt => debt.shopId.toString() === shopId.toString()
+  );
+  
+  if (existingDebt) {
+    existingDebt.amountOwed = amount;
+    existingDebt.lastUpdated = new Date();
+  } else {
+    this.financials.shopDebts.push({
+      shopId: shopId,
+      amountOwed: amount,
+      lastUpdated: new Date()
+    });
+  }
+  
+  // Update total owed
+  this.financials.totalOwed = this.getTotalDebtAcrossShops();
+  
+  return this.save();
+};
+
+// Enhanced Shop Methods for Master Shop functionality
+shopSchema.methods.setAsMasterShop = function() {
+  this.shopLevel = 'master';
+  this.masterShop = null; // Master shop doesn't have a parent
+  return this.save();
+};
+
+shopSchema.methods.connectToMasterShop = function(masterShopId, connectionType = 'branch') {
+  this.masterShop = masterShopId;
+  this.shopLevel = 'branch';
+  
+  return this.save();
+};
+
+shopSchema.methods.addConnectedShop = function(shopId, connectionType = 'branch', financialSettings = {}) {
+  // Check if already connected
+  const existingConnection = this.connectedShops.find(
+    conn => conn.shopId.toString() === shopId.toString()
+  );
+  
+  if (!existingConnection) {
+    this.connectedShops.push({
+      shopId: shopId,
+      connectionType: connectionType,
+      connectedAt: new Date(),
+      isActive: true,
+      financialSettings: {
+        shareRevenue: financialSettings.shareRevenue || false,
+        consolidateReports: financialSettings.consolidateReports || true,
+        sharedInventory: financialSettings.sharedInventory || false
+      }
+    });
+  }
+  
+  return this.save();
+};
+
+shopSchema.methods.getConnectedShops = function(activeOnly = true) {
+  if (activeOnly) {
+    return this.connectedShops.filter(shop => shop.isActive);
+  }
+  return this.connectedShops;
+};
+
+shopSchema.methods.getTotalNetworkRevenue = async function() {
+  let totalRevenue = this.financials.totalRevenue || 0;
+  
+  // Add revenue from connected shops that share revenue
+  for (const connection of this.connectedShops) {
+    if (connection.isActive && connection.financialSettings.shareRevenue) {
+      const connectedShop = await Shop.findById(connection.shopId);
+      if (connectedShop) {
+        totalRevenue += connectedShop.financials.totalRevenue || 0;
+      }
+    }
+  }
+  
+  return totalRevenue;
+};
+
+const CrossShopTransaction = mongoose.model('CrossShopTransaction', crossShopTransactionSchema);
+
+
 
 // Category Schema
 const categorySchema = new mongoose.Schema({
@@ -833,7 +1211,7 @@ const helpers = {
 // Export models and connection function (ESM style)
 export {
   connectDB,
-  helpers,
+CrossShopTransaction,
   User,
   Shop,
   Category,

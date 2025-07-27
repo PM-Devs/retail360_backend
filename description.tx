@@ -1,0 +1,223 @@
+// API Functions for Shop Management
+
+/**
+ * Create a new shop
+ */
+const createShop = async (shopData) => {
+  try {
+    const response = await fetch('/api/shops', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}` // Assuming token is stored in localStorage
+      },
+      body: JSON.stringify(shopData)
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to create shop');
+    }
+
+    return result.data;
+  } catch (error) {
+    throw new Error(`Create shop failed: ${error.message}`);
+  }
+};
+
+/**
+ * Update existing shop
+ */
+const updateShop = async (shopId, shopData) => {
+  try {
+    const response = await fetch(`/api/shops/${shopId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(shopData)
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to update shop');
+    }
+
+    return result.data;
+  } catch (error) {
+    throw new Error(`Update shop failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get all shops for the current user
+ */
+const getUserShops = async () => {
+  try {
+    const response = await fetch('/api/shops', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to fetch shops');
+    }
+
+    return result.data;
+  } catch (error) {
+    throw new Error(`Fetch shops failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get a specific shop by ID
+ */
+const getShopById = async (shopId) => {
+  try {
+    const response = await fetch(`/api/shops/${shopId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to fetch shop');
+    }
+
+    return result.data;
+  } catch (error) {
+    throw new Error(`Fetch shop failed: ${error.message}`);
+  }
+};
+
+/**
+ * Delete a shop
+ */
+const deleteShop = async (shopId) => {
+  try {
+    const response = await fetch(`/api/shops/${shopId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to delete shop');
+    }
+
+    return result.data;
+  } catch (error) {
+    throw new Error(`Delete shop failed: ${error.message}`);
+  }
+};
+
+/**
+ * Switch to a different shop (for users with multiple shops)
+ */
+const switchShop = async (shopId) => {
+  try {
+    const response = await fetch(`/api/shops/${shopId}/switch`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to switch shop');
+    }
+
+    // Update token with new shop context
+    if (result.token) {
+      localStorage.setItem('token', result.token);
+    }
+
+    return result.data;
+  } catch (error) {
+    throw new Error(`Switch shop failed: ${error.message}`);
+  }
+};
+
+// Example usage in React component
+const useShopAPI = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleCreateShop = async (shopData) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const newShop = await createShop(shopData);
+      return newShop;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateShop = async (shopId, shopData) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const updatedShop = await updateShop(shopId, shopData);
+      return updatedShop;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGetUserShops = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const shops = await getUserShops();
+      return shops;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return {
+    createShop: handleCreateShop,
+    updateShop: handleUpdateShop,
+    getUserShops: handleGetUserShops,
+    getShopById,
+    deleteShop,
+    switchShop,
+    loading,
+    error
+  };
+};
+
+export {
+  createShop,
+  updateShop,
+  getUserShops,
+  getShopById,
+  deleteShop,
+  switchShop,
+  useShopAPI
+};
