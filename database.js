@@ -2,7 +2,8 @@
 
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 dotenv.config();
 
 // Connection to MongoDB
@@ -1222,7 +1223,7 @@ userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
   try {
-    const bcrypt = await import('bcryptjs');
+ 
     const salt = await bcrypt.genSalt(12);
     this.password = await bcrypt.hash(this.password, salt);
     next();
@@ -1243,7 +1244,7 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Generate verification token method - ADDED
 userSchema.methods.generateVerificationToken = function() {
-  const crypto = await import('crypto');
+  
   const token = crypto.randomBytes(32).toString('hex');
   this.verificationToken = token;
   return token;
@@ -1251,7 +1252,7 @@ userSchema.methods.generateVerificationToken = function() {
 
 // Generate password reset token method - ADDED
 userSchema.methods.generatePasswordResetToken = function() {
-  const crypto = await import('crypto');
+
   const resetToken = crypto.randomBytes(32).toString('hex');
   
   this.resetPasswordToken = crypto
