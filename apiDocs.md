@@ -1,673 +1,642 @@
-# POS System Pages & Components Organization
+# Retail360 API Documentation
 
-## 1. Authentication Pages
+## Base URL
+`http://your-domain.com/api`
 
-### Login Page
-**Components:**
-- Form with email/password input fields
-- Submit button
-- Register link
+## Authentication Endpoints
 
-**Function:** `loginUser(credentials)`
-**Input Data:**
-```json
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
+### Register User
+```http
+POST /auth/register
 ```
 
-### Register Page
-**Components:**
-- Form with name, email, phone, password fields
-- Role selector (dropdown)
-- Shop ID input
-- Submit button
-
-**Function:** `registerUser(userData)`
-**Input Data:**
+**Request Body:**
 ```json
 {
   "name": "John Doe",
   "email": "john@example.com",
   "phone": "+233123456789",
-  "password": "password123",
-  "role": "staff",
-  "shopId": "shop_12345",
+  "password": "securepass123",
+  "role": "owner",
+  "shopId": "optional-shop-id",
   "permissions": {
     "canViewReports": true,
-    "canManageInventory": false
+    "canManageInventory": true
   }
 }
 ```
 
----
-
-## 2. Main Dashboard
-
-### Dashboard/Home Page
-**Components:**
-- **Stats Cards** (4 cards in grid layout)
-- **Low Stock Alert Cards** (vertical list)
-- **Recent Notifications Cards** (vertical list)
-- **Quick Action Buttons** (grid layout)
-
-**Function:** `getDashboardSummary(shopId)`
-**Data Format:**
+**Response:**
 ```json
 {
-  "todayStats": {
-    "revenue": 1250.50,
-    "transactions": 45,
-    "averageOrderValue": 27.79
-  },
-  "inventory": {
-    "totalProducts": 150,
-    "lowStockCount": 8,
-    "lowStockProducts": [
-      {
-        "id": "prod_123",
-        "name": "Coca Cola 500ml",
-        "currentQuantity": 5,
-        "minQuantity": 10,
-        "pricing": {
-          "sellingPrice": 2.50
-        }
+  "success": true,
+  "data": {
+    "user": {
+      "id": "user_id",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "phone": "+233123456789",
+      "role": "owner",
+      "permissions": {
+        "canViewReports": true,
+        "canManageInventory": true
       }
-    ]
-  },
-  "customers": {
-    "totalCustomers": 89
-  },
-  "notifications": [
-    {
-      "id": "notif_123",
-      "type": "low-stock",
-      "title": "Low Stock Alert",
-      "message": "Coca Cola 500ml is running low",
-      "priority": "high",
-      "isRead": false,
-      "createdAt": "2024-01-15T10:30:00Z"
-    }
-  ]
+    },
+    "token": "jwt_token_string"
+  }
 }
 ```
 
----
+### Login User
+```http
+POST /auth/login
+```
 
-## 3. Shop Management
-
-### Shop Profile Page
-**Components:**
-- **Shop Info Card** (display/edit mode)
-- **Settings Card**
-- **Edit Button**
-
-**Function:** `getShop(shopId)` / `updateShop(shopId, updates)`
-**Data Format:**
+**Request Body:**
 ```json
 {
-  "id": "shop_123",
-  "name": "Super Store",
-  "description": "Your neighborhood convenience store",
-  "address": "123 Main Street, Accra",
-  "phone": "+233123456789",
-  "email": "info@superstore.com",
-  "isActive": true,
-  "owner": {
-    "name": "John Doe",
-    "email": "john@example.com"
-  },
-  "createdAt": "2024-01-01T00:00:00Z"
+  "email": "john@example.com",
+  "password": "securepass123"
 }
 ```
 
----
-
-## 4. Product Management
-
-### Products List Page
-**Components:**
-- **Search Bar** (text input)
-- **Filter Chips** (category, low stock)
-- **Product Cards** (grid/list layout)
-- **Add Product FAB** (floating action button)
-
-**Function:** `getProducts(shopId, filters)`
-**Data Format:**
+**Response:**
 ```json
-[
-  {
-    "id": "prod_123",
-    "name": "Coca Cola 500ml",
-    "sku": "CC500ML",
-    "barcode": "1234567890123",
-    "category": {
-      "id": "cat_123",
-      "name": "Beverages"
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "user_id",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "role": "owner",
+      "shops": ["array_of_shop_objects"],
+      "ownedShops": ["array_of_owned_shops"],
+      "currentShop": "current_shop_object",
+      "masterShop": "master_shop_object",
+      "hasShops": true,
+      "hasMasterShop": true,
+      "totalDebt": 0
     },
+    "token": "jwt_token_string",
+    "requiresShopCreation": false,
+    "suggestMasterShopSetup": false
+  }
+}
+```
+
+## Shop Management Endpoints
+
+### Create Shop with Master Option
+```http
+POST /shops/master
+```
+
+**Request Body:**
+```json
+{
+  "name": "My Shop",
+  "description": "Shop description",
+  "address": {
+    "street": "123 Main St",
+    "city": "Accra",
+    "region": "Greater Accra",
+    "country": "Ghana"
+  },
+  "phone": "+233123456789",
+  "email": "shop@example.com",
+  "businessType": "mini-mart",
+  "setAsMaster": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "shop_id",
+    "name": "My Shop",
+    "description": "Shop description",
+    "address": {
+      "street": "123 Main St",
+      "city": "Accra",
+      "region": "Greater Accra",
+      "country": "Ghana"
+    },
+    "phone": "+233123456789",
+    "email": "shop@example.com",
+    "owner": "owner_object",
+    "shopLevel": "master",
+    "connectedShops": [],
+    "createdAt": "timestamp"
+  }
+}
+```
+
+### Set Master Shop
+```http
+PUT /users/:userId/master-shop
+```
+
+**Request Body:**
+```json
+{
+  "shopId": "shop_id_to_set_as_master"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Master shop set successfully",
+    "masterShop": {
+      "id": "shop_id",
+      "name": "Shop Name",
+      "shopLevel": "master"
+    },
+    "user": {
+      "id": "user_id",
+      "name": "User Name",
+      "masterShop": "master_shop_id"
+    }
+  }
+}
+```
+
+### Connect Shop to Master
+```http
+POST /shops/:shopId/connect-to-master
+```
+
+**Request Body:**
+```json
+{
+  "masterShopId": "master_shop_id",
+  "connectionType": "branch",
+  "financialSettings": {
+    "shareRevenue": false,
+    "consolidateReports": true,
+    "sharedInventory": false
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Shop connected to master successfully",
+    "shop": {
+      "id": "shop_id",
+      "name": "Shop Name",
+      "shopLevel": "branch",
+      "masterShop": "master_shop_id"
+    },
+    "masterShop": {
+      "id": "master_shop_id",
+      "name": "Master Shop Name",
+      "connectedShops": ["array_of_connected_shops"]
+    }
+  }
+}
+```
+
+### Get Master Shop Network
+```http
+GET /users/:userId/master-shop-network
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "hasMasterShop": true,
+    "masterShop": {
+      "id": "shop_id",
+      "name": "Master Shop",
+      "description": "Description",
+      "address": "address_object",
+      "financials": "financials_object"
+    },
+    "connectedShops": [
+      {
+        "id": "shop_id",
+        "name": "Connected Shop",
+        "connectionType": "branch",
+        "connectedAt": "timestamp",
+        "financialSettings": "settings_object",
+        "revenue": 1000
+      }
+    ],
+    "networkStats": {
+      "totalShops": 5,
+      "totalNetworkRevenue": 50000,
+      "masterShopRevenue": 20000
+    }
+  }
+}
+```
+
+### Get Consolidated Financial Report
+```http
+GET /users/:userId/consolidated-financial-report
+```
+
+**Query Parameters:**
+- `fromDate` (optional): Start date for report period
+- `toDate` (optional): End date for report period
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "user_id",
+    "masterShopId": "master_shop_id",
+    "reportPeriod": {
+      "fromDate": "date",
+      "toDate": "date"
+    },
+    "networkSummary": {
+      "totalShops": 5,
+      "totalRevenue": 100000,
+      "totalExpenses": 70000,
+      "totalProfit": 30000,
+      "totalNetworkDebt": 5000,
+      "userPersonalDebt": 1000
+    },
+    "shopBreakdown": [
+      {
+        "shopId": "shop_id",
+        "shopName": "Shop Name",
+        "shopType": "master",
+        "revenue": 50000,
+        "expenses": 35000,
+        "debt": 2000,
+        "profit": 15000
+      }
+    ],
+    "generatedAt": "timestamp"
+  }
+}
+```
+
+## Product Management Endpoints
+
+### Create Product
+```http
+POST /products
+```
+
+**Request Body:**
+```json
+{
+  "name": "Product Name",
+  "description": "Product description",
+  "category": "category_id",
+  "shopId": "shop_id",
+  "pricing": {
+    "costPrice": 50,
+    "sellingPrice": 100,
+    "wholesalePrice": 80
+  },
+  "stock": {
+    "currentQuantity": 100,
+    "minQuantity": 10,
+    "maxQuantity": 200
+  },
+  "unitOfMeasure": "piece",
+  "supplier": "supplier_id"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "product_id",
+    "name": "Product Name",
+    "qrCode": "generated_qr_code",
+    "sku": "generated_sku",
     "pricing": {
-      "costPrice": 1.80,
-      "sellingPrice": 2.50,
-      "currency": "GHS"
+      "costPrice": 50,
+      "sellingPrice": 100,
+      "wholesalePrice": 80
     },
     "stock": {
-      "currentQuantity": 50,
-      "minQuantity": 10
+      "currentQuantity": 100,
+      "minQuantity": 10,
+      "maxQuantity": 200
     },
-    "images": ["image_url_1"],
-    "isActive": true
-  }
-]
-```
-
-### Add/Edit Product Page
-**Components:**
-- **Product Form** (multiple input fields)
-- **Image Upload** (file picker)
-- **Category Selector** (dropdown)
-- **Pricing Section** (number inputs)
-- **Stock Section** (number inputs)
-- **Save Button**
-
-**Function:** `createProduct(productData)` / `updateProduct(productId, updates)`
-
-### Product Details Page
-**Components:**
-- **Product Info Card**
-- **QR Code Card**
-- **Stock Movement Card**
-- **Action Buttons** (Edit, Delete, Generate QR)
-
-**Function:** `getProductByQR(qrCode)`
-
-### QR Code Scanner Page
-**Components:**
-- **Camera View** (QR scanner)
-- **Product Result Card**
-- **Manual Input** (text field)
-
-**Function:** `getProductByQR(qrCode)`
-
-### Low Stock Alert Page
-**Components:**
-- **Alert Cards** (vertical list)
-- **Refresh Button**
-
-**Function:** `getLowStockProducts(shopId)`
-
----
-
-## 5. Category Management
-
-### Categories List Page
-**Components:**
-- **Category Cards** (list layout)
-- **Add Category FAB**
-- **Search Bar**
-
-**Function:** `getCategories(shopId)`
-**Data Format:**
-```json
-[
-  {
-    "id": "cat_123",
-    "name": "Beverages",
-    "description": "Soft drinks and beverages",
-    "parentCategory": null,
-    "isActive": true,
-    "createdAt": "2024-01-01T00:00:00Z"
-  }
-]
-```
-
-### Add/Edit Category Page
-**Components:**
-- **Category Form** (name, description)
-- **Parent Category Selector** (dropdown)
-- **Save Button**
-
-**Function:** `createCategory(categoryData)` / `updateCategory(categoryId, updates)`
-
----
-
-## 6. Customer Management
-
-### Customers List Page
-**Components:**
-- **Search Bar** (phone number search)
-- **Customer Cards** (list layout)
-- **Add Customer FAB**
-
-**Function:** `getCustomers(shopId, filters)`
-**Data Format:**
-```json
-[
-  {
-    "id": "cust_123",
-    "name": "Jane Smith",
-    "phone": "+233987654321",
-    "email": "jane@example.com",
-    "address": "456 Oak Street",
-    "loyalty": {
-      "points": 150,
-      "membershipTier": "silver",
-      "totalSpent": 500.00
-    },
-    "createdAt": "2024-01-01T00:00:00Z"
-  }
-]
-```
-
-### Add Customer Page
-**Components:**
-- **Customer Form** (name, phone, email, address)
-- **Loyalty Settings** (points, tier)
-- **Save Button**
-
-**Function:** `createCustomer(customerData)`
-
-### Customer Details Page
-**Components:**
-- **Customer Info Card**
-- **Loyalty Card**
-- **Purchase History List**
-- **Action Buttons** (Edit, Add Points)
-
-**Function:** `getCustomerByPhone(phone, shopId)`
-
-### Customer Search Page
-**Components:**
-- **Phone Search Bar**
-- **Customer Result Card**
-- **Quick Add Button**
-
-**Function:** `getCustomerByPhone(phone, shopId)`
-
----
-
-## 7. Sales & POS
-
-### Point of Sale (POS) Page
-**Components:**
-- **Product Search Bar**
-- **Cart Items List**
-- **Total Calculation Card**
-- **Payment Method Selector**
-- **Process Sale Button**
-- **Customer Selector**
-
-**Function:** `createSale(saleData)`
-**Data Format:**
-```json
-{
-  "shopId": "shop_123",
-  "customer": "cust_123",
-  "cashier": "user_123",
-  "items": [
-    {
-      "product": "prod_123",
-      "productName": "Coca Cola 500ml",
-      "quantity": 2,
-      "unitPrice": 2.50,
-      "totalPrice": 5.00
-    }
-  ],
-  "totals": {
-    "subtotal": 5.00,
-    "tax": 0.50,
-    "discount": 0.00,
-    "total": 5.50
-  },
-  "payment": {
-    "method": "cash",
-    "amount": 10.00,
-    "change": 4.50,
-    "status": "completed"
+    "qrCodeImage": "base64_qr_image"
   }
 }
 ```
 
-### Sales History Page
-**Components:**
-- **Date Range Picker**
-- **Filter Chips** (payment method)
-- **Sales Cards** (list layout)
-- **Export Button**
-
-**Function:** `getSales(shopId, filters)`
-**Data Format:**
-```json
-[
-  {
-    "id": "sale_123",
-    "saleNumber": "INV-2024-001",
-    "customer": {
-      "name": "Jane Smith",
-      "phone": "+233987654321"
-    },
-    "totals": {
-      "total": 27.50
-    },
-    "payment": {
-      "method": "cash",
-      "status": "completed"
-    },
-    "createdAt": "2024-01-15T14:30:00Z"
-  }
-]
+### Get Products
+```http
+GET /products/:shopId
 ```
 
-### Sale Details Page
-**Components:**
-- **Sale Info Card**
-- **Items List**
-- **Payment Details Card**
-- **Action Buttons** (Print Receipt, Refund)
+**Query Parameters:**
+- `category` (optional): Filter by category
+- `search` (optional): Search term
+- `lowStock` (optional): Filter low stock items
 
-**Function:** `getSaleById(saleId)`
-
-### Receipt Page
-**Components:**
-- **Receipt Layout** (formatted text)
-- **Share Button**
-- **Print Button**
-
----
-
-## 8. Inventory Management
-
-### Stock Movements Page
-**Components:**
-- **Movement Cards** (list layout)
-- **Filter Chips** (type, reason)
-- **Product Selector**
-
-**Function:** `getStockMovements(productId, limit)`
-**Data Format:**
+**Response:**
 ```json
-[
-  {
-    "id": "mov_123",
-    "product": {
-      "name": "Coca Cola 500ml"
-    },
-    "type": "out",
-    "quantity": 2,
-    "previousQuantity": 52,
-    "newQuantity": 50,
-    "reason": "sale",
-    "reference": "sale_123",
-    "user": {
-      "name": "John Doe"
-    },
-    "createdAt": "2024-01-15T14:30:00Z"
-  }
-]
+{
+  "success": true,
+  "data": [
+    {
+      "id": "product_id",
+      "name": "Product Name",
+      "category": "category_object",
+      "pricing": "pricing_object",
+      "stock": "stock_object",
+      "supplier": "supplier_object"
+    }
+  ]
+}
 ```
 
-### Stock Adjustment Page
-**Components:**
-- **Product Selector**
-- **Quantity Input** (number)
-- **Reason Selector** (dropdown)
-- **Notes Input** (text area)
-- **Submit Button**
+### Get Product by QR Code
+```http
+GET /products/qr/:qrCode
+```
 
-**Function:** `adjustStock(productId, adjustment)`
-
----
-
-## 9. Supplier Management
-
-### Suppliers List Page
-**Components:**
-- **Supplier Cards** (list layout)
-- **Add Supplier FAB**
-- **Search Bar**
-
-**Function:** `getSuppliers(shopId)`
-**Data Format:**
+**Response:**
 ```json
-[
-  {
-    "id": "sup_123",
-    "name": "Coca Cola Bottling Company",
-    "contactPerson": "Mike Johnson",
-    "phone": "+233555123456",
-    "email": "mike@cocacola.com",
-    "address": "Industrial Area, Tema",
-    "products": [
+{
+  "success": true,
+  "data": {
+    "id": "product_id",
+    "name": "Product Name",
+    "qrCode": "qr_code",
+    "category": "category_object",
+    "pricing": "pricing_object",
+    "stock": "stock_object"
+  }
+}
+```
+
+## Sales Management Endpoints
+
+### Create Sale
+```http
+POST /sales
+```
+
+**Request Body:**
+```json
+{
+  "shopId": "shop_id",
+  "cashier": "user_id",
+  "customer": "customer_id",
+  "items": [
+    {
+      "product": "product_id",
+      "quantity": 2,
+      "unitPrice": 100,
+      "totalPrice": 200
+    }
+  ],
+  "payment": {
+    "method": "cash",
+    "status": "completed"
+  },
+  "totals": {
+    "subtotal": 200,
+    "discount": 0,
+    "tax": 0,
+    "total": 200
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "saleNumber": "generated_sale_number",
+    "items": ["array_of_items"],
+    "payment": "payment_details",
+    "totals": "totals_object",
+    "customer": "customer_object",
+    "cashier": "cashier_object",
+    "createdAt": "timestamp"
+  }
+}
+```
+
+### Get Sales
+```http
+GET /sales/:shopId
+```
+
+**Query Parameters:**
+- `startDate` (optional): Filter by start date
+- `endDate` (optional): Filter by end date
+- `paymentMethod` (optional): Filter by payment method
+- `customer` (optional): Filter by customer
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "saleNumber": "sale_number",
+      "customer": "customer_object",
+      "items": ["array_of_items"],
+      "payment": "payment_object",
+      "totals": "totals_object",
+      "createdAt": "timestamp"
+    }
+  ]
+}
+```
+
+## Customer Management Endpoints
+
+### Create Customer
+```http
+POST /customers
+```
+
+**Request Body:**
+```json
+{
+  "name": "Customer Name",
+  "phone": "+233123456789",
+  "email": "customer@example.com",
+  "address": {
+    "street": "Street Address",
+    "city": "City",
+    "region": "Region"
+  },
+  "shopId": "shop_id"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "customer_id",
+    "name": "Customer Name",
+    "phone": "+233123456789",
+    "email": "customer@example.com",
+    "loyalty": {
+      "points": 0,
+      "totalSpent": 0,
+      "membershipTier": "bronze"
+    }
+  }
+}
+```
+
+### Get Customers
+```http
+GET /customers/:shopId
+```
+
+**Query Parameters:**
+- `search` (optional): Search term for name/phone/email
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "customer_id",
+      "name": "Customer Name",
+      "phone": "phone_number",
+      "loyalty": "loyalty_object"
+    }
+  ]
+}
+```
+
+## Analytics Endpoints
+
+### Get Shop Network Analytics
+```http
+GET /users/:userId/shop-network-analytics
+```
+
+**Query Parameters:**
+- `fromDate` (optional): Start date for analysis
+- `toDate` (optional): End date for analysis
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "user_id",
+    "reportPeriod": {
+      "fromDate": "date",
+      "toDate": "date"
+    },
+    "networkOverview": {
+      "totalShops": 5,
+      "masterShopRevenue": 50000,
+      "totalNetworkRevenue": 100000,
+      "averageRevenuePerShop": 20000
+    },
+    "financialHealth": {
+      "totalProfit": 30000,
+      "profitMargin": 30,
+      "debtToRevenueRatio": 5
+    },
+    "transactionAnalytics": {
+      "totalTransactions": 500,
+      "transactionTypes": {
+        "transfer": 200,
+        "debt": 100,
+        "payment": 200
+      },
+      "totalTransactionValue": 150000
+    },
+    "shopPerformance": [
       {
-        "name": "Coca Cola 500ml"
+        "shopId": "shop_id",
+        "shopName": "Shop Name",
+        "shopType": "branch",
+        "profitMargin": 25,
+        "debtRatio": 10,
+        "performance": "profitable"
       }
     ]
   }
-]
-```
-
----
-
-## 10. Analytics & Reports
-
-### Analytics Dashboard Page
-**Components:**
-- **Revenue Chart** (line chart)
-- **Top Products Chart** (bar chart)
-- **Customer Analytics Card**
-- **Date Range Picker**
-
-**Function:** `getSalesAnalytics(shopId, startDate, endDate)`
-
-### Sales Analytics Page
-**Components:**
-- **Sales Chart** (line chart)
-- **Payment Methods Chart** (pie chart)
-- **Top Products List**
-- **Export Button**
-
-**Data Format:**
-```json
-{
-  "totalProductsSold": 150,
-  "totalRevenue": 3750.00,
-  "totalProfit": 1125.00,
-  "topProducts": [
-    {
-      "product": {
-        "name": "Coca Cola 500ml",
-        "pricing": {
-          "sellingPrice": 2.50
-        }
-      },
-      "totalQuantitySold": 50,
-      "totalRevenue": 125.00,
-      "totalProfit": 35.00,
-      "salesCount": 25
-    }
-  ]
 }
 ```
 
-### Daily Reports Page
-**Components:**
-- **Date Picker**
-- **Report Card** (comprehensive summary)
-- **Export Button**
-- **Print Button**
-
-**Function:** `generateDailyReport(shopId, date)`
-
----
-
-## 11. Discounts & Promotions
-
-### Active Discounts Page
-**Components:**
-- **Discount Cards** (list layout)
-- **Add Discount FAB**
-- **Filter Chips** (active, expired)
-
-**Function:** `getActiveDiscounts(shopId)`
-**Data Format:**
-```json
-[
-  {
-    "id": "disc_123",
-    "name": "New Year Sale",
-    "code": "NEWYEAR2024",
-    "type": "percentage",
-    "value": 10,
-    "startDate": "2024-01-01T00:00:00Z",
-    "endDate": "2024-01-31T23:59:59Z",
-    "minimumPurchase": 50.00,
-    "usageLimit": 100,
-    "usedCount": 25
-  }
-]
+### Get Dashboard Summary
+```http
+GET /dashboard/:shopId
 ```
 
-### Apply Discount Page
-**Components:**
-- **Discount Code Input**
-- **Sale Summary Card**
-- **Apply Button**
-- **Discount Result Card**
-
-**Function:** `applyDiscount(discountCode, saleData)`
-
----
-
-## 12. Notifications
-
-### Notifications Page
-**Components:**
-- **Notification Cards** (list layout)
-- **Filter Chips** (unread, type)
-- **Mark All Read Button**
-
-**Function:** `getNotifications(shopId, filters)`
-**Data Format:**
+**Response:**
 ```json
-[
-  {
-    "id": "notif_123",
-    "type": "low-stock",
-    "title": "Low Stock Alert",
-    "message": "Coca Cola 500ml is running low (5 remaining)",
-    "priority": "high",
-    "isRead": false,
-    "metadata": {
-      "productId": "prod_123"
+{
+  "success": true,
+  "data": {
+    "todayStats": {
+      "revenue": 5000,
+      "transactions": 50,
+      "averageOrderValue": 100
     },
-    "createdAt": "2024-01-15T10:30:00Z"
+    "inventory": {
+      "totalProducts": 500,
+      "lowStockCount": 20,
+      "lowStockProducts": ["array_of_products"]
+    },
+    "customers": {
+      "totalCustomers": 1000
+    },
+    "notifications": ["array_of_notifications"]
   }
-]
-```
-
----
-
-## 13. Settings & Profile
-
-### Settings Page
-**Components:**
-- **Settings Cards** (grouped by category)
-- **Toggle Switches**
-- **Input Fields**
-- **Save Button**
-
-### Profile Page
-**Components:**
-- **Profile Card** (user info)
-- **Edit Profile Form**
-- **Change Password Form**
-- **Permissions Card**
-
----
-
-## 14. Additional Features
-
-### AFIA AI Chat Page
-**Components:**
-- **Chat Messages List**
-- **Message Input**
-- **Send Button**
-- **Quick Actions**
-
-**Function:** `main(userQuestion, shopId)`
-**Data Format:**
-```json
-{
-  "response": "Based on your sales data, you sold 150 items today with a total revenue of GHS 3,750.",
-  "functionCalls": [
-    {
-      "toolCallId": "call_123",
-      "result": {
-        "success": true,
-        "functionName": "getDashboardSummary",
-        "result": {
-          "todayStats": {
-            "revenue": 3750.00,
-            "transactions": 45
-          }
-        }
-      }
-    }
-  ]
 }
 ```
 
-### Backup & Restore Page
-**Components:**
-- **Backup Status Card**
-- **Backup Button**
-- **Restore Options**
-- **Progress Indicator**
+## Error Responses
 
-**Function:** `backupShopData(shopId)`
-**Data Format:**
+All endpoints may return the following error response:
+
 ```json
 {
-  "timestamp": "2024-01-15T12:00:00Z",
-  "shop": {...},
-  "users": [...],
-  "categories": [...],
-  "products": [...],
-  "customers": [...],
-  "sales": [...],
-  "suppliers": [...],
-  "stockMovements": [...]
+  "success": false,
+  "error": {
+    "message": "Error message description",
+    "stack": "Error stack trace (development mode only)"
+  },
+  "timestamp": "error_timestamp"
 }
 ```
 
----
+## Authentication
 
-## Component Recommendations
+All endpoints except `/auth/login` and `/auth/register` require authentication via JWT token in the Authorization header:
 
-### Card Components
-- **Info Cards**: Display read-only information
-- **Action Cards**: Include buttons for user actions
-- **List Cards**: Display multiple items in a list format
-- **Summary Cards**: Show aggregated data with charts
+```http
+Authorization: Bearer your_jwt_token
+```
 
-### Input Components
-- **Text Fields**: For names, descriptions, notes
-- **Number Fields**: For quantities, prices, stock levels
-- **Dropdown Selectors**: For categories, payment methods, roles
-- **Date Pickers**: For filtering and reporting
-- **Search Bars**: For finding products, customers, etc.
-- **Toggle Switches**: For boolean settings
-- **File Pickers**: For image uploads
+## Additional Headers
 
-### Layout Components
-- **Grid Layout**: For dashboard stats, product catalog
-- **List Layout**: For transactions, customers, notifications
-- **Tab Layout**: For different sections within a page
-- **Bottom Navigation**: For main app navigation
-- **Floating Action Button**: For primary actions like "Add"
+For shop-specific endpoints, include the shop ID in headers:
 
-### Interactive Components
-- **Charts**: Line charts for trends, pie charts for distributions
-- **QR Scanner**: Camera view for scanning QR codes
-- **Progress Indicators**: For loading states and backup progress
-- **Refresh Indicators**: For pull-to-refresh functionality
+```http
+X-Shop-ID: your_shop_id
+```
