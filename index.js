@@ -259,7 +259,7 @@ app.get('/api/users/:userId/shops', async (req, res) => {
   }
 });
 
-app.put('/api/users/:userId/current-shop', async (req, res) => {
+app.put('/api/users/:userId/switch/current-shop', async (req, res) => {
   try {
     const shop = await setCurrentShop(req.params.userId, req.body.shopId);
     res.status(200).json({ success: true, data: shop });
@@ -270,7 +270,7 @@ app.put('/api/users/:userId/current-shop', async (req, res) => {
 
 
 
-// Replace with this corrected version:
+//  with this corrected version:
 app.get('/api/users/:userId/current-shop', async (req, res) => {
   try {
     const userShops = await getUserShops(req.params.userId);
