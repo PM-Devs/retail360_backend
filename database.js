@@ -89,16 +89,34 @@ const userSchema = new mongoose.Schema({
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shop',
-      required: false // CHANGED: was implicitly required
+      required: false
     },
     role: {
       type: String,
       enum: ['owner', 'manager', 'staff'],
       default: 'staff'
     },
+    // ENHANCED: More structured permissions with validation
     permissions: [{
       type: String,
-      enum: ['inventory', 'sales', 'reports', 'settings', 'users', 'customers', 'refunds']
+      // Format: "module:action1,action2,action3"
+      // Example: "inventory:create,read,update,delete"
+      validate: {
+        validator: function(permission) {
+          // Validate format: module:actions
+          if (!permission.includes(':')) return false;
+          
+          const [module, actions] = permission.split(':');
+          const validModules = ['inventory', 'sales', 'customers', 'suppliers', 'reports', 'settings', 'users', 'discounts', 'categories', 'stock'];
+          const validActions = ['create', 'read', 'update', 'delete'];
+          
+          if (!validModules.includes(module)) return false;
+          
+          const actionList = actions.split(',');
+          return actionList.every(action => validActions.includes(action.trim()));
+        },
+        message: 'Permission must be in format "module:action1,action2" with valid modules and actions'
+      }
     }],
     isActive: {
       type: Boolean,
@@ -107,6 +125,23 @@ const userSchema = new mongoose.Schema({
     joinedAt: {
       type: Date,
       default: Date.now
+    },
+    // NEW: Track who added this user to the shop
+    addedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    // NEW: Last permission update
+    permissionsUpdatedAt: {
+      type: Date,
+      default: Date.now
+    },
+    // NEW: Last permission updated by
+    permissionsUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
     }
   }],
   // Current active shop for the session
@@ -297,16 +332,31 @@ const shopSchema = new mongoose.Schema({
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: false // CHANGED: prevent validation issues
+      required: false
     },
     role: {
       type: String,
       enum: ['owner', 'manager', 'staff'],
       default: 'staff'
     },
+    // ENHANCED: More structured permissions with validation
     permissions: [{
       type: String,
-      enum: ['inventory', 'sales', 'reports', 'settings', 'users']
+      validate: {
+        validator: function(permission) {
+          if (!permission.includes(':')) return false;
+          
+          const [module, actions] = permission.split(':');
+          const validModules = ['inventory', 'sales', 'customers', 'suppliers', 'reports', 'settings', 'users', 'discounts', 'categories', 'stock'];
+          const validActions = ['create', 'read', 'update', 'delete'];
+          
+          if (!validModules.includes(module)) return false;
+          
+          const actionList = actions.split(',');
+          return actionList.every(action => validActions.includes(action.trim()));
+        },
+        message: 'Permission must be in format "module:action1,action2" with valid modules and actions'
+      }
     }],
     addedAt: {
       type: Date,
@@ -315,6 +365,23 @@ const shopSchema = new mongoose.Schema({
     isActive: {
       type: Boolean,
       default: true
+    },
+    // NEW: Track who added this user
+    addedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    // NEW: Last role/permission update
+    lastUpdated: {
+      type: Date,
+      default: Date.now
+    },
+    // NEW: Who last updated the permissions
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
     }
   }],
   businessType: {
@@ -386,6 +453,53 @@ const shopSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  }
+}, {
+  timestamps: true
+});
+const permissionHistorySchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  shopId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop',
+    required: true
+  },
+  actionType: {
+    type: String,
+    enum: ['role_change', 'permission_update', 'user_added', 'user_removed'],
+    required: true
+  },
+  previousRole: {
+    type: String,
+    enum: ['owner', 'manager', 'staff']
+  },
+  newRole: {
+    type: String,
+    enum: ['owner', 'manager', 'staff']
+  },
+  previousPermissions: [{
+    type: String
+  }],
+  newPermissions: [{
+    type: String
+  }],
+  changedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  reason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Reason cannot exceed 500 characters']
+  },
+  metadata: {
+    type: Object,
+    default: {}
   }
 }, {
   timestamps: true
@@ -1321,7 +1435,140 @@ discountSchema.index({ code: 1 });
 crossShopTransactionSchema.index({ fromShop: 1, createdAt: -1 });
 crossShopTransactionSchema.index({ toShop: 1, createdAt: -1 });
 crossShopTransactionSchema.index({ masterShop: 1 });
+// Enhanced User Methods - ADD these to existing userSchema.methods
+userSchema.methods.hasShopPermission = function(shopId, module, action) {
+  const shopAccess = this.shops.find(
+    s => s.shopId.toString() === shopId.toString() && s.isActive
+  );
+  
+  if (!shopAccess) return false;
+  
+  // Owner has all permissions
+  if (shopAccess.role === 'owner') return true;
+  
+  // Check specific permission
+  const permission = shopAccess.permissions.find(p => p.startsWith(`${module}:`));
+  if (!permission) return false;
+  
+  const actions = permission.split(':')[1].split(',');
+  return actions.includes(action);
+};
 
+userSchema.methods.updateShopPermissions = function(shopId, newPermissions, updatedBy) {
+  const shopIndex = this.shops.findIndex(
+    s => s.shopId.toString() === shopId.toString()
+  );
+  
+  if (shopIndex !== -1) {
+    this.shops[shopIndex].permissions = newPermissions;
+    this.shops[shopIndex].permissionsUpdatedAt = new Date();
+    this.shops[shopIndex].permissionsUpdatedBy = updatedBy;
+  }
+  
+  return this.save();
+};
+
+userSchema.methods.getShopPermissions = function(shopId) {
+  const shopAccess = this.shops.find(
+    s => s.shopId.toString() === shopId.toString() && s.isActive
+  );
+  
+  if (!shopAccess) return null;
+  
+  const formattedPermissions = {};
+  shopAccess.permissions.forEach(permission => {
+    const [module, actions] = permission.split(':');
+    if (module && actions) {
+      formattedPermissions[module] = actions.split(',');
+    }
+  });
+  
+  return {
+    role: shopAccess.role,
+    permissions: formattedPermissions,
+    joinedAt: shopAccess.joinedAt,
+    addedBy: shopAccess.addedBy
+  };
+};
+
+// 5. ADD NEW SHOP SCHEMA METHODS (Add these to your existing shopSchema.methods)
+
+// Enhanced Shop Methods - ADD these to existing shopSchema.methods
+shopSchema.methods.addUserWithPermissions = function(userId, role, permissions, addedBy) {
+  // Check if user already exists
+  const existingUserIndex = this.users.findIndex(
+    u => u.userId.toString() === userId.toString()
+  );
+  
+  if (existingUserIndex !== -1) {
+    // Update existing user
+    this.users[existingUserIndex].role = role;
+    this.users[existingUserIndex].permissions = permissions;
+    this.users[existingUserIndex].isActive = true;
+    this.users[existingUserIndex].lastUpdated = new Date();
+    this.users[existingUserIndex].updatedBy = addedBy;
+  } else {
+    // Add new user
+    this.users.push({
+      userId: userId,
+      role: role,
+      permissions: permissions,
+      isActive: true,
+      addedBy: addedBy,
+      addedAt: new Date()
+    });
+  }
+  
+  return this.save();
+};
+
+shopSchema.methods.updateUserPermissions = function(userId, newRole, newPermissions, updatedBy) {
+  const userIndex = this.users.findIndex(
+    u => u.userId.toString() === userId.toString()
+  );
+  
+  if (userIndex !== -1) {
+    if (newRole) this.users[userIndex].role = newRole;
+    if (newPermissions) this.users[userIndex].permissions = newPermissions;
+    this.users[userIndex].lastUpdated = new Date();
+    this.users[userIndex].updatedBy = updatedBy;
+  }
+  
+  return this.save();
+};
+
+shopSchema.methods.removeUser = function(userId) {
+  const userIndex = this.users.findIndex(
+    u => u.userId.toString() === userId.toString()
+  );
+  
+  if (userIndex !== -1) {
+    this.users[userIndex].isActive = false;
+  }
+  
+  return this.save();
+};
+
+shopSchema.methods.getActiveUsers = function() {
+  return this.users.filter(u => u.isActive);
+};
+
+// 6. ADD NEW INDEXES FOR BETTER PERFORMANCE
+
+// Enhanced Indexes - ADD these to your existing indexes
+userSchema.index({ 'shops.shopId': 1, 'shops.isActive': 1 });
+userSchema.index({ 'shops.role': 1 });
+userSchema.index({ 'shops.permissions': 1 });
+
+shopSchema.index({ 'users.userId': 1, 'users.isActive': 1 });
+shopSchema.index({ 'users.role': 1 });
+
+permissionHistorySchema.index({ userId: 1, shopId: 1, createdAt: -1 });
+permissionHistorySchema.index({ shopId: 1, actionType: 1, createdAt: -1 });
+
+// 7. CREATE NEW MODEL FOR PERMISSION HISTORY
+
+const PermissionHistory = mongoose.model('PermissionHistory', permissionHistorySchema);
 // Enhanced User Methods for Master Shop functionality
 userSchema.methods.setMasterShop = function(shopId) {
   this.masterShop = shopId;

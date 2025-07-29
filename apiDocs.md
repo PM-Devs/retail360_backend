@@ -1,49 +1,41 @@
 # Retail360 API Documentation
 
 ## Base URL
-`http://your-domain.com/api`
+`http:///api`
 
 ## Authentication Endpoints
 
 ### Register User
 ```http
-POST /auth/register
+POST https://retail360-backend.vercel.app/api/auth/register
 ```
 
 **Request Body:**
 ```json
 {
-  "name": "John Doe",
-  "email": "john@example.com",
-  "phone": "+233123456789",
-  "password": "securepass123",
-  "role": "owner",
-  "shopId": "optional-shop-id",
-  "permissions": {
-    "canViewReports": true,
-    "canManageInventory": true
-  }
+  "name": "Kwame Mensah",
+  "email": "kwame@example.com",
+  "phone": "+233245678901",
+  "password": "securePassword123",
+  "role": "owner"
 }
+
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "data": {
-    "user": {
-      "id": "user_id",
-      "name": "John Doe",
-      "email": "john@example.com",
-      "phone": "+233123456789",
-      "role": "owner",
-      "permissions": {
-        "canViewReports": true,
-        "canManageInventory": true
-      }
-    },
-    "token": "jwt_token_string"
-  }
+    "success": true,
+    "data": {
+        "user": {
+            "id": "688909a668a76ad1ab0d02dc",
+            "name": "Kwame Mensah",
+            "email": "kwame@example.com",
+            "phone": "+233245678901",
+            "role": "owner"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODg5MDlhNjY4YTc2YWQxYWIwZDAyZGMiLCJyb2xlIjoib3duZXIiLCJpYXQiOjE3NTM4MTEzNjcsImV4cCI6MTc1NDQxNjE2N30.XK1Wwdo5-2gP7jeR2PVobu2LfK4keKlxalordfGVpBg"
+    }
 }
 ```
 
@@ -55,33 +47,33 @@ POST /auth/login
 **Request Body:**
 ```json
 {
-  "email": "john@example.com",
-  "password": "securepass123"
+
+  "email": "kwame@example.com",
+
+  "password": "securePassword123"
+  
 }
+
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "data": {
-    "user": {
-      "id": "user_id",
-      "name": "John Doe",
-      "email": "john@example.com",
-      "role": "owner",
-      "shops": ["array_of_shop_objects"],
-      "ownedShops": ["array_of_owned_shops"],
-      "currentShop": "current_shop_object",
-      "masterShop": "master_shop_object",
-      "hasShops": true,
-      "hasMasterShop": true,
-      "totalDebt": 0
-    },
-    "token": "jwt_token_string",
-    "requiresShopCreation": false,
-    "suggestMasterShopSetup": false
-  }
+    "success": true,
+    "data": {
+        "user": {
+            "id": "688909a668a76ad1ab0d02dc",
+            "name": "Kwame Mensah",
+            "email": "kwame@example.com",
+            "role": "owner",
+            "shops": [],
+            "ownedShops": [],
+            "currentShop": null,
+            "masterShop": null,
+            "totalDebt": 0
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODg5MDlhNjY4YTc2YWQxYWIwZDAyZGMiLCJyb2xlIjoib3duZXIiLCJjdXJyZW50U2hvcCI6bnVsbCwibWFzdGVyU2hvcCI6bnVsbCwiaWF0IjoxNzUzODExNDY3LCJleHAiOjE3NTQ0MTYyNjd9.aEdn7Lhnicx0W3pzXHoThiE-fFUE0bJgBrA_Ip-GrnU"
+    }
 }
 ```
 
@@ -95,42 +87,99 @@ POST /shops/master
 **Request Body:**
 ```json
 {
-  "name": "My Shop",
-  "description": "Shop description",
+  "name": "Adom Supermarket",
+  "description": "A neighborhood supermarket offering groceries, toiletries, and household items.",
   "address": {
-    "street": "123 Main St",
-    "city": "Accra",
-    "region": "Greater Accra",
+    "street": "123 Kwame Nkrumah Ave",
+    "city": "Kumasi",
+    "region": "Ashanti",
     "country": "Ghana"
   },
-  "phone": "+233123456789",
-  "email": "shop@example.com",
-  "businessType": "mini-mart",
-  "setAsMaster": true
+  "phone": "+233245678901",
+  "email": "contact@adomsupermarket.com",
+  "businessType": "supermarket",
+  "currency": "GHS",
+  "subscriptionPlan": "pro",
+  "settings": {
+    "enableLoyaltyProgram": true,
+    "enableWhatsAppReports": true,
+    "enableSMSReceipts": false,
+    "autoBackup": true,
+    "lowStockThreshold": 5,
+    "receiptTemplate": "Thank you for shopping with us!",
+    "taxRate": 12.5,
+    "consolidateReports": true,
+    "shareInventoryWithMaster": false,
+    "allowMasterShopAccess": true
+  },
+  "userId": "688909a668a76ad1ab0d02dc"
 }
+
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "shop_id",
-    "name": "My Shop",
-    "description": "Shop description",
-    "address": {
-      "street": "123 Main St",
-      "city": "Accra",
-      "region": "Greater Accra",
-      "country": "Ghana"
-    },
-    "phone": "+233123456789",
-    "email": "shop@example.com",
-    "owner": "owner_object",
-    "shopLevel": "master",
-    "connectedShops": [],
-    "createdAt": "timestamp"
-  }
+    "success": true,
+    "data": {
+        "name": "Adom Supermarket",
+        "description": "A neighborhood supermarket offering groceries, toiletries, and household items.",
+        "address": {
+            "street": "123 Kwame Nkrumah Ave",
+            "city": "Kumasi",
+            "region": "Ashanti",
+            "country": "Ghana"
+        },
+        "phone": "+233245678901",
+        "email": "contact@adomsupermarket.com",
+        "owner": "688909a668a76ad1ab0d02dc",
+        "masterShop": null,
+        "shopLevel": "master",
+        "users": [
+            {
+                "userId": "688909a668a76ad1ab0d02dc",
+                "role": "owner",
+                "permissions": [
+                    "inventory",
+                    "sales",
+                    "reports",
+                    "settings",
+                    "users"
+                ],
+                "isActive": true,
+                "_id": "68890bdab81ee33fb97e3176",
+                "addedAt": "2025-07-29T17:58:50.952Z"
+            }
+        ],
+        "businessType": "supermarket",
+        "currency": "GHS",
+        "subscriptionPlan": "pro",
+        "financials": {
+            "totalRevenue": 0,
+            "totalExpenses": 0,
+            "totalDebt": 0,
+            "interShopTransactions": []
+        },
+        "settings": {
+            "enableLoyaltyProgram": true,
+            "enableWhatsAppReports": true,
+            "enableSMSReceipts": false,
+            "autoBackup": true,
+            "lowStockThreshold": 5,
+            "receiptTemplate": "Thank you for shopping with us!",
+            "taxRate": 12.5,
+            "consolidateReports": true,
+            "shareInventoryWithMaster": false,
+            "allowMasterShopAccess": true
+        },
+        "isActive": true,
+        "_id": "68890bdab81ee33fb97e3175",
+        "connectedShops": [],
+        "subscriptionExpiry": "2025-08-28T17:58:50.954Z",
+        "createdAt": "2025-07-29T17:58:50.960Z",
+        "updatedAt": "2025-07-29T17:58:51.093Z",
+        "__v": 0
+    }
 }
 ```
 
@@ -141,502 +190,426 @@ PUT /users/:userId/master-shop
 
 **Request Body:**
 ```json
+
 {
-  "shopId": "shop_id_to_set_as_master"
+  "shopId":"68890bdab81ee33fb97e3175"
 }
+
 ```
 
 **Response:**
 ```json
 {
+    "success": true,
+    "data": {
+        "address": {
+            "street": "123 Kwame Nkrumah Ave",
+            "city": "Kumasi",
+            "region": "Ashanti",
+            "country": "Ghana"
+        },
+        "financials": {
+            "totalRevenue": 0,
+            "totalExpenses": 0,
+            "totalDebt": 0,
+            "interShopTransactions": []
+        },
+        "settings": {
+            "enableLoyaltyProgram": true,
+            "enableWhatsAppReports": true,
+            "enableSMSReceipts": false,
+            "autoBackup": true,
+            "lowStockThreshold": 5,
+            "receiptTemplate": "Thank you for shopping with us!",
+            "taxRate": 12.5,
+            "consolidateReports": true,
+            "shareInventoryWithMaster": false,
+            "allowMasterShopAccess": true
+        },
+        "_id": "68890bdab81ee33fb97e3175",
+        "name": "Adom Supermarket",
+        "description": "A neighborhood supermarket offering groceries, toiletries, and household items.",
+        "phone": "+233245678901",
+        "email": "contact@adomsupermarket.com",
+        "owner": "688909a668a76ad1ab0d02dc",
+        "masterShop": null,
+        "shopLevel": "master",
+        "users": [
+            {
+                "userId": "688909a668a76ad1ab0d02dc",
+                "role": "owner",
+                "permissions": [
+                    "inventory",
+                    "sales",
+                    "reports",
+                    "settings",
+                    "users"
+                ],
+                "isActive": true,
+                "_id": "68890bdab81ee33fb97e3176",
+                "addedAt": "2025-07-29T17:58:50.952Z"
+            }
+        ],
+        "businessType": "supermarket",
+        "currency": "GHS",
+        "subscriptionPlan": "pro",
+        "isActive": true,
+        "connectedShops": [],
+        "subscriptionExpiry": "2025-08-28T17:58:50.954Z",
+        "createdAt": "2025-07-29T17:58:50.960Z",
+        "updatedAt": "2025-07-29T17:58:51.093Z",
+        "__v": 0
+    }
+}
+
+
+---
+
+## 📌 1. Create a Shop
+
+**POST** `/api/shops`
+
+### ✅ Request
+
+```json
+{
+  "userId": "64aabcde1234567890abcd12",
+  "setAsMaster": true,
+  "name": "Kumasi Supermart",
+  "description": "A large retail supermarket in Kumasi",
+  "address": {
+    "street": "Tech Road",
+    "city": "Kumasi",
+    "region": "Ashanti",
+    "country": "Ghana"
+  },
+  "phone": "+233502345678",
+  "email": "info@kumasisupermart.com",
+  "businessType": "supermarket",
+  "currency": "GHS",
+  "subscriptionPlan": "pro"
+}
+```
+
+### ✅ Response
+
+```json
+{
   "success": true,
   "data": {
-    "message": "Master shop set successfully",
-    "masterShop": {
-      "id": "shop_id",
-      "name": "Shop Name",
-      "shopLevel": "master"
-    },
-    "user": {
-      "id": "user_id",
-      "name": "User Name",
-      "masterShop": "master_shop_id"
-    }
+    "_id": "64ee23ab9988123456abc123",
+    "name": "Kumasi Supermart",
+    "shopLevel": "master",
+    "owner": "64aabcde1234567890abcd12",
+    "isActive": true,
+    ...
   }
 }
 ```
 
-### Connect Shop to Master
-```http
-POST /shops/:shopId/connect-to-master
-```
+---
 
-**Request Body:**
+## 📌 2. Set Master Shop
+
+**PUT** `/api/users/:userId/master-shop`
+
+### ✅ Request
+
 ```json
 {
-  "masterShopId": "master_shop_id",
+  "shopId": "64ee23ab9988123456abc123"
+}
+```
+
+### ✅ Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "64ee23ab9988123456abc123",
+    "shopLevel": "master"
+  }
+}
+```
+
+---
+
+## 📌 3. Connect Shop to Master
+
+**POST** `/api/shops/:shopId/connect-to-master`
+
+### ✅ Request
+
+```json
+{
+  "masterShopId": "64ee23ab9988123456abc123",
   "connectionType": "branch",
   "financialSettings": {
-    "shareRevenue": false,
+    "shareRevenue": true,
     "consolidateReports": true,
     "sharedInventory": false
   }
 }
 ```
 
-**Response:**
+### ✅ Response
+
 ```json
 {
   "success": true,
   "data": {
-    "message": "Shop connected to master successfully",
     "shop": {
-      "id": "shop_id",
-      "name": "Shop Name",
+      "_id": "64ef22cd456123abcde78912",
       "shopLevel": "branch",
-      "masterShop": "master_shop_id"
+      "masterShop": "64ee23ab9988123456abc123"
     },
     "masterShop": {
-      "id": "master_shop_id",
-      "name": "Master Shop Name",
-      "connectedShops": ["array_of_connected_shops"]
+      "_id": "64ee23ab9988123456abc123",
+      "connectedShops": [
+        {
+          "shopId": "64ef22cd456123abcde78912",
+          "connectionType": "branch",
+          "financialSettings": {
+            "shareRevenue": true,
+            "consolidateReports": true,
+            "sharedInventory": false
+          }
+        }
+      ]
     }
   }
 }
 ```
 
-### Get Master Shop Network
-```http
-GET /users/:userId/master-shop-network
-```
+---
 
-**Response:**
+## 📌 4. Get Master Shop Network
+
+**GET** `/api/users/:userId/master-shop-network`
+
+### ✅ Response
+
 ```json
 {
   "success": true,
   "data": {
-    "hasMasterShop": true,
     "masterShop": {
-      "id": "shop_id",
-      "name": "Master Shop",
-      "description": "Description",
-      "address": "address_object",
-      "financials": "financials_object"
+      "_id": "64ee23ab9988123456abc123",
+      "name": "Kumasi Supermart"
     },
     "connectedShops": [
       {
-        "id": "shop_id",
-        "name": "Connected Shop",
+        "shopId": {
+          "_id": "64ef22cd456123abcde78912",
+          "name": "Kejatia Mini Mart",
+          "email": "contact@kejatia.com"
+        },
         "connectionType": "branch",
-        "connectedAt": "timestamp",
-        "financialSettings": "settings_object",
-        "revenue": 1000
-      }
-    ],
-    "networkStats": {
-      "totalShops": 5,
-      "totalNetworkRevenue": 50000,
-      "masterShopRevenue": 20000
-    }
-  }
-}
-```
-
-### Get Consolidated Financial Report
-```http
-GET /users/:userId/consolidated-financial-report
-```
-
-**Query Parameters:**
-- `fromDate` (optional): Start date for report period
-- `toDate` (optional): End date for report period
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "userId": "user_id",
-    "masterShopId": "master_shop_id",
-    "reportPeriod": {
-      "fromDate": "date",
-      "toDate": "date"
-    },
-    "networkSummary": {
-      "totalShops": 5,
-      "totalRevenue": 100000,
-      "totalExpenses": 70000,
-      "totalProfit": 30000,
-      "totalNetworkDebt": 5000,
-      "userPersonalDebt": 1000
-    },
-    "shopBreakdown": [
-      {
-        "shopId": "shop_id",
-        "shopName": "Shop Name",
-        "shopType": "master",
-        "revenue": 50000,
-        "expenses": 35000,
-        "debt": 2000,
-        "profit": 15000
-      }
-    ],
-    "generatedAt": "timestamp"
-  }
-}
-```
-
-## Product Management Endpoints
-
-### Create Product
-```http
-POST /products
-```
-
-**Request Body:**
-```json
-{
-  "name": "Product Name",
-  "description": "Product description",
-  "category": "category_id",
-  "shopId": "shop_id",
-  "pricing": {
-    "costPrice": 50,
-    "sellingPrice": 100,
-    "wholesalePrice": 80
-  },
-  "stock": {
-    "currentQuantity": 100,
-    "minQuantity": 10,
-    "maxQuantity": 200
-  },
-  "unitOfMeasure": "piece",
-  "supplier": "supplier_id"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "product_id",
-    "name": "Product Name",
-    "qrCode": "generated_qr_code",
-    "sku": "generated_sku",
-    "pricing": {
-      "costPrice": 50,
-      "sellingPrice": 100,
-      "wholesalePrice": 80
-    },
-    "stock": {
-      "currentQuantity": 100,
-      "minQuantity": 10,
-      "maxQuantity": 200
-    },
-    "qrCodeImage": "base64_qr_image"
-  }
-}
-```
-
-### Get Products
-```http
-GET /products/:shopId
-```
-
-**Query Parameters:**
-- `category` (optional): Filter by category
-- `search` (optional): Search term
-- `lowStock` (optional): Filter low stock items
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "product_id",
-      "name": "Product Name",
-      "category": "category_object",
-      "pricing": "pricing_object",
-      "stock": "stock_object",
-      "supplier": "supplier_object"
-    }
-  ]
-}
-```
-
-### Get Product by QR Code
-```http
-GET /products/qr/:qrCode
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "product_id",
-    "name": "Product Name",
-    "qrCode": "qr_code",
-    "category": "category_object",
-    "pricing": "pricing_object",
-    "stock": "stock_object"
-  }
-}
-```
-
-## Sales Management Endpoints
-
-### Create Sale
-```http
-POST /sales
-```
-
-**Request Body:**
-```json
-{
-  "shopId": "shop_id",
-  "cashier": "user_id",
-  "customer": "customer_id",
-  "items": [
-    {
-      "product": "product_id",
-      "quantity": 2,
-      "unitPrice": 100,
-      "totalPrice": 200
-    }
-  ],
-  "payment": {
-    "method": "cash",
-    "status": "completed"
-  },
-  "totals": {
-    "subtotal": 200,
-    "discount": 0,
-    "tax": 0,
-    "total": 200
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "saleNumber": "generated_sale_number",
-    "items": ["array_of_items"],
-    "payment": "payment_details",
-    "totals": "totals_object",
-    "customer": "customer_object",
-    "cashier": "cashier_object",
-    "createdAt": "timestamp"
-  }
-}
-```
-
-### Get Sales
-```http
-GET /sales/:shopId
-```
-
-**Query Parameters:**
-- `startDate` (optional): Filter by start date
-- `endDate` (optional): Filter by end date
-- `paymentMethod` (optional): Filter by payment method
-- `customer` (optional): Filter by customer
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "saleNumber": "sale_number",
-      "customer": "customer_object",
-      "items": ["array_of_items"],
-      "payment": "payment_object",
-      "totals": "totals_object",
-      "createdAt": "timestamp"
-    }
-  ]
-}
-```
-
-## Customer Management Endpoints
-
-### Create Customer
-```http
-POST /customers
-```
-
-**Request Body:**
-```json
-{
-  "name": "Customer Name",
-  "phone": "+233123456789",
-  "email": "customer@example.com",
-  "address": {
-    "street": "Street Address",
-    "city": "City",
-    "region": "Region"
-  },
-  "shopId": "shop_id"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "customer_id",
-    "name": "Customer Name",
-    "phone": "+233123456789",
-    "email": "customer@example.com",
-    "loyalty": {
-      "points": 0,
-      "totalSpent": 0,
-      "membershipTier": "bronze"
-    }
-  }
-}
-```
-
-### Get Customers
-```http
-GET /customers/:shopId
-```
-
-**Query Parameters:**
-- `search` (optional): Search term for name/phone/email
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "customer_id",
-      "name": "Customer Name",
-      "phone": "phone_number",
-      "loyalty": "loyalty_object"
-    }
-  ]
-}
-```
-
-## Analytics Endpoints
-
-### Get Shop Network Analytics
-```http
-GET /users/:userId/shop-network-analytics
-```
-
-**Query Parameters:**
-- `fromDate` (optional): Start date for analysis
-- `toDate` (optional): End date for analysis
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "userId": "user_id",
-    "reportPeriod": {
-      "fromDate": "date",
-      "toDate": "date"
-    },
-    "networkOverview": {
-      "totalShops": 5,
-      "masterShopRevenue": 50000,
-      "totalNetworkRevenue": 100000,
-      "averageRevenuePerShop": 20000
-    },
-    "financialHealth": {
-      "totalProfit": 30000,
-      "profitMargin": 30,
-      "debtToRevenueRatio": 5
-    },
-    "transactionAnalytics": {
-      "totalTransactions": 500,
-      "transactionTypes": {
-        "transfer": 200,
-        "debt": 100,
-        "payment": 200
-      },
-      "totalTransactionValue": 150000
-    },
-    "shopPerformance": [
-      {
-        "shopId": "shop_id",
-        "shopName": "Shop Name",
-        "shopType": "branch",
-        "profitMargin": 25,
-        "debtRatio": 10,
-        "performance": "profitable"
+        "isActive": true
       }
     ]
   }
 }
 ```
 
-### Get Dashboard Summary
-```http
-GET /dashboard/:shopId
-```
+---
 
-**Response:**
+## 📌 5. Get Consolidated Financial Report
+
+**GET** `/api/users/:userId/consolidated-financial-report`
+
+### ✅ Response
+
 ```json
 {
   "success": true,
   "data": {
-    "todayStats": {
-      "revenue": 5000,
-      "transactions": 50,
-      "averageOrderValue": 100
-    },
-    "inventory": {
-      "totalProducts": 500,
-      "lowStockCount": 20,
-      "lowStockProducts": ["array_of_products"]
-    },
-    "customers": {
-      "totalCustomers": 1000
-    },
-    "notifications": ["array_of_notifications"]
+    "masterShop": "64ee23ab9988123456abc123",
+    "totalShops": 3,
+    "totalRevenue": 180000,
+    "totalExpenses": 40000,
+    "totalDebt": 10000,
+    "netProfit": 140000
   }
 }
 ```
 
-## Error Responses
+---
 
-All endpoints may return the following error response:
+## 📌 6. Get a Shop
+
+**GET** `/api/shops/:shopId`
+
+### ✅ Response
 
 ```json
 {
-  "success": false,
-  "error": {
-    "message": "Error message description",
-    "stack": "Error stack trace (development mode only)"
-  },
-  "timestamp": "error_timestamp"
+  "success": true,
+  "data": {
+    "_id": "64ef22cd456123abcde78912",
+    "name": "Kejatia Mini Mart",
+    "owner": {
+      "_id": "64aabcde1234567890abcd12",
+      "name": "Kwame Owusu",
+      "email": "kwame@domain.com"
+    },
+    "users": [
+      {
+        "userId": {
+          "_id": "64aabcde1234567890abcd12",
+          "name": "Kwame Owusu",
+          "email": "kwame@domain.com"
+        },
+        "role": "owner",
+        "permissions": ["inventory", "sales", "reports", "settings", "users"]
+      }
+    ],
+    "masterShop": {
+      "_id": "64ee23ab9988123456abc123",
+      "name": "Kumasi Supermart"
+    }
+  }
 }
 ```
 
-## Authentication
+---
 
-All endpoints except `/auth/login` and `/auth/register` require authentication via JWT token in the Authorization header:
+## 📌 7. Delete Shop
 
-```http
-Authorization: Bearer your_jwt_token
+**DELETE** `/api/shops/:shopId`
+
+### ✅ Request
+
+```json
+{
+  "userId": "64aabcde1234567890abcd12"
+}
 ```
 
-## Additional Headers
+### ✅ Response
 
-For shop-specific endpoints, include the shop ID in headers:
-
-```http
-X-Shop-ID: your_shop_id
+```json
+{
+  "success": true,
+  "data": {
+    "success": true
+  }
+}
 ```
+
+---
+
+## 📌 8. Get User Shops
+
+**GET** `/api/users/:userId/shops`
+
+### ✅ Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "64aabcde1234567890abcd12",
+    "currentShop": {
+      "_id": "64ef22cd456123abcde78912",
+      "name": "Kejatia Mini Mart"
+    },
+    "masterShop": {
+      "_id": "64ee23ab9988123456abc123",
+      "name": "Kumasi Supermart"
+    },
+    "shops": [
+      {
+        "shopId": {
+          "_id": "64ef22cd456123abcde78912",
+          "name": "Kejatia Mini Mart",
+          "address": {
+            "street": "Station Rd",
+            "city": "Kumasi"
+          },
+          "phone": "+233500000000",
+          "email": "kejatia@domain.com"
+        },
+        "role": "owner",
+        "permissions": ["inventory", "sales"],
+        "isActive": true
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 📌 9. Set Current Shop
+
+**PUT** `/api/users/:userId/current-shop`
+
+### ✅ Request
+
+```json
+{
+  "shopId": "64ef22cd456123abcde78912"
+}
+```
+
+### ✅ Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "64ef22cd456123abcde78912",
+    "name": "Kejatia Mini Mart"
+  }
+}
+```
+
+---
+
+## 📌 10. Get Shop Stats
+
+**GET** `/api/shops/:shopId/stats`
+
+### ✅ Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalSales": 300,
+    "dailySales": 20,
+    "totalProducts": 120,
+    "totalCustomers": 80,
+    "stockMovements": 45
+  }
+}
+```
+
+information needed such as 
+
+**Response:**
+```json
+{
+    "success": true,
+    "data": {
+        "user": {
+            "id": "688909a668a76ad1ab0d02dc",
+            "name": "Kwame Mensah",
+            "email": "kwame@example.com",
+            "role": "owner",
+            "shops": [],
+            "ownedShops": [],
+            "currentShop": null,
+            "masterShop": null,
+            "totalDebt": 0
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODg5MDlhNjY4YTc2YWQxYWIwZDAyZGMiLCJyb2xlIjoib3duZXIiLCJjdXJyZW50U2hvcCI6bnVsbCwibWFzdGVyU2hvcCI6bnVsbCwiaWF0IjoxNzUzODExNDY3LCJleHAiOjE3NTQ0MTYyNjd9.aEdn7Lhnicx0W3pzXHoThiE-fFUE0bJgBrA_Ip-GrnU"
+    }
+}
+```
+is saved in localstorage so use them when needed for requests
+  // Store user data and token in localStorage
+      localStorage.setItem('authToken', data.data.token);
+      localStorage.setItem('userData', JSON.stringify(data.data.user));

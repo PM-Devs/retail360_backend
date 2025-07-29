@@ -51,7 +51,13 @@ import {
   updateCategory,
   deleteCategory,
   getProductsByCategory,
-  getCategoryHierarchy
+  getCategoryHierarchy,
+getAvailablePermissions,
+  registerStaff,
+  updateUserRoleAndPermissions,
+  getShopStaff,
+  removeStaffFromShop,
+  getUserPermissions
 } from './main.js';
 
 import { main, runTest } from './afia.js';
@@ -262,14 +268,20 @@ app.put('/api/users/:userId/current-shop', async (req, res) => {
   }
 });
 
+
+
+// Replace with this corrected version:
 app.get('/api/users/:userId/current-shop', async (req, res) => {
   try {
-    const shop = await getCurrentShop(req.params.userId);
-    res.status(200).json({ success: true, data: shop });
+    const userShops = await getUserShops(req.params.userId);
+    const currentShop = userShops.currentShop;
+    res.status(200).json({ success: true, data: { currentShop } });
   } catch (error) {
     res.status(404).json({ success: false, message: error.message });
   }
 });
+
+
 
 app.get('/api/shops/:shopId/stats', async (req, res) => {
   try {
@@ -279,6 +291,119 @@ app.get('/api/shops/:shopId/stats', async (req, res) => {
     res.status(404).json({ success: false, message: error.message });
   }
 });
+
+// Get available permissions
+app.get('/api/permissions/available', async (req, res) => {
+  try {
+    const permissions = getAvailablePermissions();
+    res.status(200).json({ success: true, data: permissions });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Register staff member
+app.post('/api/staff/register', async (req, res) => {
+  try {
+    const { registeredByUserId, ...staffData } = req.body;
+    const result = await registerStaff(staffData, registeredByUserId);
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Update user role and permissions
+app.put('/api/staff/:targetUserId/role-permissions', async (req, res) => {
+  try {
+    const { updatedByUserId, ...updates } = req.body;
+    const result = await updateUserRoleAndPermissions(
+      req.params.targetUserId, 
+      updatedByUserId, 
+      updates
+    );
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Get shop staff
+app.get('/api/shops/:shopId/staff', async (req, res) => {
+  try {
+    const { requestingUserId } = req.query;
+    if (!requestingUserId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'requestingUserId is required' 
+      });
+    }
+    const staff = await getShopStaff(req.params.shopId, requestingUserId);
+    res.status(200).json({ success: true, data: staff });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Remove staff from shop
+app.delete('/api/shops/:shopId/staff/:targetUserId', async (req, res) => {
+  try {
+    const { removedByUserId } = req.body;
+    if (!removedByUserId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'removedByUserId is required' 
+      });
+    }
+    const result = await removeStaffFromShop(
+      req.params.targetUserId,
+      req.params.shopId,
+      removedByUserId
+    );
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Get user permissions for specific shop
+app.get('/api/users/:userId/shops/:shopId/permissions', async (req, res) => {
+  try {
+    const permissions = await getUserPermissions(req.params.userId, req.params.shopId);
+    res.status(200).json({ success: true, data: permissions });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+});
+
+
+
+
+
+// Add product to category
+app.post('/api/categories/:categoryId/products/:productId', async (req, res) => {
+  try {
+    const result = await addProductToCategory(req.params.categoryId, req.params.productId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Remove product from category
+app.delete('/api/categories/:categoryId/products/:productId', async (req, res) => {
+  try {
+    const result = await removeProductFromCategory(req.params.categoryId, req.params.productId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+
+
+
+
 
 // ========================= CATEGORY MANAGEMENT ROUTES =========================
 app.post('/api/categories', async (req, res) => {
@@ -617,6 +742,10 @@ app.post('/api/cross-shop-transactions', async (req, res) => {
     res.status(400).json({ success: false, message: error.message });
   }
 });
+
+
+
+
 
 // ========================= UTILITY ROUTES =========================
 app.post('/api/tasks/daily', async (req, res) => {
