@@ -148,11 +148,7 @@ app.get('/api/afia/test', async (req, res) => {
   }
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`AFIA API running on port ${PORT}`);
-});
+
 // ========================= AUTHENTICATION ROUTES =========================
 app.post('/api/auth/register', async (req, res) => {
   try {
