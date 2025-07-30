@@ -60,7 +60,7 @@ getAvailablePermissions,
   getUserPermissions
 } from './main.js';
 
-import { main, runTest } from './afia.js';
+import { main } from './afia.js';
 const app = express();
 
 // CORS configuration
@@ -133,27 +133,6 @@ app.post('/api/afia/chat', async (req, res) => {
     });
   }
 });
-
-// GET /api/afia/test - System Test Endpoint
-app.get('/api/afia/test', async (req, res) => {
-  try {
-    const testResult = await runTest();
-    
-    res.json({
-      success: testResult.status === "success",
-      status: testResult.status,
-      details: testResult
-    });
-  } catch (error) {
-    console.error('AFIA Test Error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'System test failed',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'See server logs'
-    });
-  }
-});
-
 
 // ========================= AUTHENTICATION ROUTES =========================
 app.post('/api/auth/register', async (req, res) => {
