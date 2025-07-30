@@ -3,123 +3,237 @@ import Groq from "groq-sdk";
 import dotenv from "dotenv";
 import mongoose from 'mongoose';
 import {
-  User, Shop, Product, Category, Customer, Sale, Supplier,
-  StockMovement, DailyReport, Notification, Discount, CrossShopTransaction,
-  helpers
+  User,
+  Shop,
+  Category,
+  Product,
+  Customer,
+  Sale,
+  Supplier,
+  StockMovement,
+  DailyReport,
+  Notification,
+  Discount,
+  CrossShopTransaction,
+  PermissionHistory
 } from './database.js';
-
-// Import all functions from main.js except loginUser and owner registration
-import {
-  createShop,
-  setMasterShop,
-  connectShopToMaster,
-  getMasterShopNetwork,
-  getConsolidatedFinancialReport,
-  getShop,
-  updateShop,
-  deleteShop,
-  getUserShops,
-  setCurrentShop,
-  getShopStats,
-  createProduct,
-  getProducts,
-  getProductByQR,
-  updateProduct,
-  deleteProduct,
-  getLowStockProducts,
-  createSale,
-  getSales,
-  getSaleById,
-  processRefund,
-  createCustomer,
-  getCustomers,
-  getCustomerByPhone,
-  updateCustomer,
-  addLoyaltyPoints,
-  createStockMovement,
-  getStockMovements,
-  adjustStock,
-  createSupplier,
-  getSuppliers,
-  updateSupplier,
-  generateDailyReport,
-  getDashboardSummary,
-  createNotification,
-  getNotifications,
-  markNotificationAsRead,
-  createDiscount,
-  getActiveDiscounts,
-  recordCrossShopTransaction,
-  runDailyTasks,
-  createCategory,
-  getCategories,
-  getCategoryById,
-  updateCategory,
-  deleteCategory,
-  getProductsByCategory,
-  getCategoryHierarchy
-} from './main.js';
 
 // Load environment variables
 dotenv.config();
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Permission Constants
+const AVAILABLE_PERMISSIONS = {
+  inventory: { name: 'Inventory Management', description: 'Manage products, categories, and stock', actions: ['create', 'read', 'update', 'delete'] },
+  sales: { name: 'Sales Management', description: 'Process sales, view transactions, handle refunds', actions: ['create', 'read', 'update', 'delete'] },
+  customers: { name: 'Customer Management', description: 'Manage customer information and loyalty programs', actions: ['create', 'read', 'update', 'delete'] },
+  suppliers: { name: 'Supplier Management', description: 'Manage supplier information and relationships', actions: ['create', 'read', 'update', 'delete'] },
+  reports: { name: 'Reports & Analytics', description: 'View reports, analytics, and business insights', actions: ['read'] },
+  settings: { name: 'Shop Settings', description: 'Manage shop configuration and preferences', actions: ['read', 'update'] },
+  users: { name: 'User Management', description: 'Manage staff accounts and permissions', actions: ['create', 'read', 'update', 'delete'] },
+  discounts: { name: 'Discount Management', description: 'Create and manage promotional offers', actions: ['create', 'read', 'update', 'delete'] },
+  categories: { name: 'Category Management', description: 'Organize products into categories', actions: ['create', 'read', 'update', 'delete'] },
+  stock: { name: 'Stock Management', description: 'Adjust stock levels and track movements', actions: ['create', 'read', 'update'] }
+};
+
+const DEFAULT_ROLE_PERMISSIONS = {
+  owner: Object.keys(AVAILABLE_PERMISSIONS).reduce((acc, module) => {
+    acc[module] = AVAILABLE_PERMISSIONS[module].actions;
+    return acc;
+  }, {}),
+  manager: {
+    inventory: ['create', 'read', 'update'],
+    sales: ['create', 'read', 'update', 'delete'],
+    customers: ['create', 'read', 'update'],
+    suppliers: ['read'],
+    reports: ['read'],
+    settings: ['read'],
+    users: ['read'],
+    discounts: ['create', 'read', 'update'],
+    categories: ['create', 'read', 'update'],
+    stock: ['create', 'read', 'update']
+  },
+  staff: {
+    inventory: ['read'],
+    sales: ['create', 'read'],
+    customers: ['create', 'read', 'update'],
+    suppliers: ['read'],
+    reports: [],
+    settings: ['read'],
+    users: [],
+    discounts: ['read'],
+    categories: ['read'],
+    stock: ['read']
+  }
+};
+
+// Permission Utilities
+const formatPermissionsForDB = (permissions) => {
+  return Object.entries(permissions).map(([module, actions]) => 
+    `${module}:${actions.join(',')}`
+  );
+};
+
+const formatPermissionsFromDB = (permissions) => {
+  return permissions.reduce((acc, perm) => {
+    const [module, actions] = perm.split(':');
+    acc[module] = actions.split(',');
+    return acc;
+  }, {});
+};
+
+const hasPermission = (userPermissions, module, action) => {
+  const perms = formatPermissionsFromDB(userPermissions);
+  return perms[module]?.includes(action) || false;
+};
+
 // Enhanced Function Implementations
 const availableFunctions = {
-  // Authentication
-  registerUser: {
-    async function(userData) {
+  // User Management
+  registerStaff: {
+    async function(staffData, registeredByUserId) {
       try {
-        // Prevent creating owner accounts
-        if (userData.role === 'owner') {
-          return { 
-            success: false, 
-            error: "AI cannot create owner accounts. Please contact support." 
-          };
-        }
-
-        const user = new User({
-          ...userData,
-          role: userData.role || 'staff'
-        });
-        
-        await user.save();
-        
-        // Return without sensitive data
-        const userObj = user.toObject();
-        delete userObj.password;
-        return { success: true, user: userObj };
+        const staff = await User.registerStaff(staffData, registeredByUserId);
+        return {
+          success: true,
+          user: staff.user,
+          permissions: staff.user.permissions
+        };
       } catch (error) {
         return { success: false, error: error.message };
       }
     },
-    description: "Register a new user (Manager or Staff only)",
+    description: "Register a new staff member (Owner/Manager only)",
     parameters: {
       type: "object",
       properties: {
-        userData: {
+        staffData: {
           type: "object",
           properties: {
             name: { type: "string" },
             email: { type: "string" },
             phone: { type: "string" },
             password: { type: "string" },
-            role: { 
-              type: "string", 
-              enum: ["manager", "staff"] 
-            },
-            shopId: { type: "string" }
+            role: { type: "string", enum: ["staff", "manager"] },
+            shopId: { type: "string" },
+            customPermissions: { type: "object" }
           },
-          required: ["name", "email", "phone", "password"]
+          required: ["name", "email", "phone", "password", "shopId"]
+        },
+        registeredByUserId: { type: "string" }
+      },
+      required: ["staffData", "registeredByUserId"]
+    }
+  },
+
+  updateUserRoleAndPermissions: {
+    async function(targetUserId, updatedByUserId, updates) {
+      try {
+        const result = await User.updateUserRoleAndPermissions(
+          targetUserId, 
+          updatedByUserId, 
+          updates
+        );
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Update user role and permissions",
+    parameters: {
+      type: "object",
+      properties: {
+        targetUserId: { type: "string" },
+        updatedByUserId: { type: "string" },
+        updates: {
+          type: "object",
+          properties: {
+            shopId: { type: "string" },
+            role: { type: "string", enum: ["staff", "manager"] },
+            permissions: { type: "object" }
+          },
+          required: ["shopId"]
         }
       },
-      required: ["userData"]
+      required: ["targetUserId", "updatedByUserId", "updates"]
+    }
+  },
+
+  getShopStaff: {
+    async function(shopId, requestingUserId) {
+      try {
+        const staff = await Shop.getShopStaff(shopId, requestingUserId);
+        return { success: true, staff };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Get shop staff with roles and permissions",
+    parameters: {
+      type: "object",
+      properties: {
+        shopId: { type: "string" },
+        requestingUserId: { type: "string" }
+      },
+      required: ["shopId", "requestingUserId"]
+    }
+  },
+
+  removeStaffFromShop: {
+    async function(targetUserId, shopId, removedByUserId) {
+      try {
+        const result = await User.removeStaffFromShop(
+          targetUserId, 
+          shopId, 
+          removedByUserId
+        );
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Remove staff from shop",
+    parameters: {
+      type: "object",
+      properties: {
+        targetUserId: { type: "string" },
+        shopId: { type: "string" },
+        removedByUserId: { type: "string" }
+      },
+      required: ["targetUserId", "shopId", "removedByUserId"]
+    }
+  },
+
+  getUserPermissions: {
+    async function(userId, shopId) {
+      try {
+        const permissions = await User.getUserPermissions(userId, shopId);
+        return { success: true, permissions };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Get user permissions for a specific shop",
+    parameters: {
+      type: "object",
+      properties: {
+        userId: { type: "string" },
+        shopId: { type: "string" }
+      },
+      required: ["userId", "shopId"]
     }
   },
 
   // Master Shop Management
   createMasterShop: {
-    function: createShop,
+    async function(shopData, userId, setAsMaster = true) {
+      try {
+        const shop = await Shop.createShop(shopData, userId, setAsMaster);
+        return { success: true, shop };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a new master shop",
     parameters: {
       type: "object",
@@ -141,7 +255,14 @@ const availableFunctions = {
   },
 
   setMasterShop: {
-    function: setMasterShop,
+    async function(userId, shopId) {
+      try {
+        const shop = await Shop.setMasterShop(userId, shopId);
+        return { success: true, shop };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Set a shop as master shop for a user",
     parameters: {
       type: "object",
@@ -154,7 +275,19 @@ const availableFunctions = {
   },
 
   connectToMasterShop: {
-    function: connectShopToMaster,
+    async function(shopId, masterShopId, connectionType = 'branch', financialSettings = {}) {
+      try {
+        const result = await Shop.connectShopToMaster(
+          shopId, 
+          masterShopId, 
+          connectionType, 
+          financialSettings
+        );
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Connect a shop to a master shop",
     parameters: {
       type: "object",
@@ -180,7 +313,14 @@ const availableFunctions = {
   },
 
   getMasterShopNetwork: {
-    function: getMasterShopNetwork,
+    async function(userId) {
+      try {
+        const network = await User.getMasterShopNetwork(userId);
+        return { success: true, ...network };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get master shop and connected shops",
     parameters: {
       type: "object",
@@ -193,7 +333,14 @@ const availableFunctions = {
 
   // Financial Management
   getConsolidatedFinancialReport: {
-    function: getConsolidatedFinancialReport,
+    async function(userId) {
+      try {
+        const report = await Shop.getConsolidatedFinancialReport(userId);
+        return { success: true, ...report };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get consolidated financial report across all shops in network",
     parameters: {
       type: "object",
@@ -205,7 +352,14 @@ const availableFunctions = {
   },
 
   recordCrossShopTransaction: {
-    function: recordCrossShopTransaction,
+    async function(transactionData) {
+      try {
+        const transaction = await CrossShopTransaction.recordCrossShopTransaction(transactionData);
+        return { success: true, transaction };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Record transaction between shops",
     parameters: {
       type: "object",
@@ -228,7 +382,14 @@ const availableFunctions = {
 
   // Shop Management
   getShop: {
-    function: getShop,
+    async function(shopId) {
+      try {
+        const shop = await Shop.getShop(shopId);
+        return { success: true, shop };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get shop details",
     parameters: {
       type: "object",
@@ -240,7 +401,14 @@ const availableFunctions = {
   },
 
   updateShop: {
-    function: updateShop,
+    async function(shopId, updates) {
+      try {
+        const shop = await Shop.updateShop(shopId, updates);
+        return { success: true, shop };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Update shop information",
     parameters: {
       type: "object",
@@ -253,7 +421,14 @@ const availableFunctions = {
   },
 
   deleteShop: {
-    function: deleteShop,
+    async function(shopId, userId) {
+      try {
+        const result = await Shop.deleteShop(shopId, userId);
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Delete a shop",
     parameters: {
       type: "object",
@@ -266,8 +441,15 @@ const availableFunctions = {
   },
 
   getUserShops: {
-    function: getUserShops,
-    description: "Get all shops for a user",
+    async function(userId) {
+      try {
+        const shops = await User.getUserShops(userId);
+        return { success: true, ...shops };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Get all shops for a user with permissions",
     parameters: {
       type: "object",
       properties: {
@@ -278,7 +460,14 @@ const availableFunctions = {
   },
 
   setCurrentShop: {
-    function: setCurrentShop,
+    async function(userId, shopId) {
+      try {
+        const result = await User.setCurrentShop(userId, shopId);
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Set current shop for a user",
     parameters: {
       type: "object",
@@ -291,7 +480,14 @@ const availableFunctions = {
   },
 
   getShopStats: {
-    function: getShopStats,
+    async function(shopId) {
+      try {
+        const stats = await Shop.getShopStats(shopId);
+        return { success: true, ...stats };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get statistics for a shop",
     parameters: {
       type: "object",
@@ -304,7 +500,14 @@ const availableFunctions = {
 
   // Product Management
   createProduct: {
-    function: createProduct,
+    async function(productData) {
+      try {
+        const product = await Product.createProduct(productData);
+        return { success: true, product };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a new product with QR code",
     parameters: {
       type: "object",
@@ -325,7 +528,14 @@ const availableFunctions = {
   },
 
   getProducts: {
-    function: getProducts,
+    async function(shopId, filters = {}) {
+      try {
+        const products = await Product.getProducts(shopId, filters);
+        return { success: true, products };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get products for a shop",
     parameters: {
       type: "object",
@@ -345,7 +555,14 @@ const availableFunctions = {
   },
 
   getProductByQR: {
-    function: getProductByQR,
+    async function(qrCode, shopId = null) {
+      try {
+        const product = await Product.getProductByQR(qrCode, shopId);
+        return { success: true, product };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get product by QR code",
     parameters: {
       type: "object",
@@ -358,7 +575,14 @@ const availableFunctions = {
   },
 
   updateProduct: {
-    function: updateProduct,
+    async function(productId, updates) {
+      try {
+        const product = await Product.updateProduct(productId, updates);
+        return { success: true, product };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Update product information",
     parameters: {
       type: "object",
@@ -371,7 +595,14 @@ const availableFunctions = {
   },
 
   deleteProduct: {
-    function: deleteProduct,
+    async function(productId) {
+      try {
+        const product = await Product.deleteProduct(productId);
+        return { success: true, product };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Delete a product",
     parameters: {
       type: "object",
@@ -383,7 +614,14 @@ const availableFunctions = {
   },
 
   getLowStockProducts: {
-    function: getLowStockProducts,
+    async function(shopId) {
+      try {
+        const products = await Product.getLowStockProducts(shopId);
+        return { success: true, products };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get low stock products for a shop",
     parameters: {
       type: "object",
@@ -396,7 +634,14 @@ const availableFunctions = {
 
   // Sales Management
   createSale: {
-    function: createSale,
+    async function(saleData) {
+      try {
+        const sale = await Sale.createSale(saleData);
+        return { success: true, sale };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a new sale",
     parameters: {
       type: "object",
@@ -424,7 +669,14 @@ const availableFunctions = {
   },
 
   getSales: {
-    function: getSales,
+    async function(shopId, filters = {}) {
+      try {
+        const sales = await Sale.getSales(shopId, filters);
+        return { success: true, sales };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get sales for a shop",
     parameters: {
       type: "object",
@@ -444,7 +696,14 @@ const availableFunctions = {
   },
 
   getSaleById: {
-    function: getSaleById,
+    async function(saleId) {
+      try {
+        const sale = await Sale.getSaleById(saleId);
+        return { success: true, sale };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get sale by ID",
     parameters: {
       type: "object",
@@ -456,7 +715,14 @@ const availableFunctions = {
   },
 
   processRefund: {
-    function: processRefund,
+    async function(saleId, refundData) {
+      try {
+        const sale = await Sale.processRefund(saleId, refundData);
+        return { success: true, sale };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Process a refund for a sale",
     parameters: {
       type: "object",
@@ -476,7 +742,14 @@ const availableFunctions = {
 
   // Customer Management
   createCustomer: {
-    function: createCustomer,
+    async function(customerData) {
+      try {
+        const customer = await Customer.createCustomer(customerData);
+        return { success: true, customer };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a new customer",
     parameters: {
       type: "object",
@@ -496,7 +769,14 @@ const availableFunctions = {
   },
 
   getCustomers: {
-    function: getCustomers,
+    async function(shopId, filters = {}) {
+      try {
+        const customers = await Customer.getCustomers(shopId, filters);
+        return { success: true, customers };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get customers for a shop",
     parameters: {
       type: "object",
@@ -514,7 +794,14 @@ const availableFunctions = {
   },
 
   getCustomerByPhone: {
-    function: getCustomerByPhone,
+    async function(phone, shopId) {
+      try {
+        const customer = await Customer.getCustomerByPhone(phone, shopId);
+        return { success: true, customer };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get customer by phone number",
     parameters: {
       type: "object",
@@ -527,7 +814,14 @@ const availableFunctions = {
   },
 
   updateCustomer: {
-    function: updateCustomer,
+    async function(customerId, updates) {
+      try {
+        const customer = await Customer.updateCustomer(customerId, updates);
+        return { success: true, customer };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Update customer information",
     parameters: {
       type: "object",
@@ -540,7 +834,14 @@ const availableFunctions = {
   },
 
   addLoyaltyPoints: {
-    function: addLoyaltyPoints,
+    async function(customerId, points, totalSpent) {
+      try {
+        const customer = await Customer.addLoyaltyPoints(customerId, points, totalSpent);
+        return { success: true, customer };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Add loyalty points to a customer",
     parameters: {
       type: "object",
@@ -555,7 +856,14 @@ const availableFunctions = {
 
   // Stock Management
   createStockMovement: {
-    function: createStockMovement,
+    async function(movementData) {
+      try {
+        const movement = await StockMovement.createStockMovement(movementData);
+        return { success: true, movement };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create stock movement record",
     parameters: {
       type: "object",
@@ -577,7 +885,14 @@ const availableFunctions = {
   },
 
   getStockMovements: {
-    function: getStockMovements,
+    async function(productId, limit = 50) {
+      try {
+        const movements = await StockMovement.getStockMovements(productId, limit);
+        return { success: true, movements };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get stock movements for a product",
     parameters: {
       type: "object",
@@ -590,7 +905,14 @@ const availableFunctions = {
   },
 
   adjustStock: {
-    function: adjustStock,
+    async function(productId, adjustment) {
+      try {
+        const product = await Product.adjustStock(productId, adjustment);
+        return { success: true, product };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Adjust product stock quantity",
     parameters: {
       type: "object",
@@ -613,7 +935,14 @@ const availableFunctions = {
 
   // Supplier Management
   createSupplier: {
-    function: createSupplier,
+    async function(supplierData) {
+      try {
+        const supplier = await Supplier.createSupplier(supplierData);
+        return { success: true, supplier };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a new supplier",
     parameters: {
       type: "object",
@@ -633,7 +962,14 @@ const availableFunctions = {
   },
 
   getSuppliers: {
-    function: getSuppliers,
+    async function(shopId) {
+      try {
+        const suppliers = await Supplier.getSuppliers(shopId);
+        return { success: true, suppliers };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get suppliers for a shop",
     parameters: {
       type: "object",
@@ -645,7 +981,14 @@ const availableFunctions = {
   },
 
   updateSupplier: {
-    function: updateSupplier,
+    async function(supplierId, updates) {
+      try {
+        const supplier = await Supplier.updateSupplier(supplierId, updates);
+        return { success: true, supplier };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Update supplier information",
     parameters: {
       type: "object",
@@ -659,7 +1002,14 @@ const availableFunctions = {
 
   // Analytics & Reporting
   generateDailyReport: {
-    function: generateDailyReport,
+    async function(shopId, date = new Date()) {
+      try {
+        const report = await DailyReport.generateDailyReport(shopId, date);
+        return { success: true, report };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Generate daily sales report",
     parameters: {
       type: "object",
@@ -672,7 +1022,14 @@ const availableFunctions = {
   },
 
   getDashboardSummary: {
-    function: getDashboardSummary,
+    async function(shopId) {
+      try {
+        const summary = await Shop.getDashboardSummary(shopId);
+        return { success: true, ...summary };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get dashboard summary for a shop",
     parameters: {
       type: "object",
@@ -685,7 +1042,14 @@ const availableFunctions = {
 
   // Notification Functions
   createNotification: {
-    function: createNotification,
+    async function(notificationData) {
+      try {
+        const notification = await Notification.createNotification(notificationData);
+        return { success: true, notification };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a notification",
     parameters: {
       type: "object",
@@ -706,7 +1070,14 @@ const availableFunctions = {
   },
 
   getNotifications: {
-    function: getNotifications,
+    async function(shopId, filters = {}) {
+      try {
+        const notifications = await Notification.getNotifications(shopId, filters);
+        return { success: true, notifications };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get notifications for a shop",
     parameters: {
       type: "object",
@@ -726,7 +1097,14 @@ const availableFunctions = {
   },
 
   markNotificationAsRead: {
-    function: markNotificationAsRead,
+    async function(notificationId) {
+      try {
+        const notification = await Notification.markNotificationAsRead(notificationId);
+        return { success: true, notification };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Mark notification as read",
     parameters: {
       type: "object",
@@ -739,7 +1117,14 @@ const availableFunctions = {
 
   // Discount Functions
   createDiscount: {
-    function: createDiscount,
+    async function(discountData) {
+      try {
+        const discount = await Discount.createDiscount(discountData);
+        return { success: true, discount };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a discount/promo",
     parameters: {
       type: "object",
@@ -761,7 +1146,14 @@ const availableFunctions = {
   },
 
   getActiveDiscounts: {
-    function: getActiveDiscounts,
+    async function(shopId) {
+      try {
+        const discounts = await Discount.getActiveDiscounts(shopId);
+        return { success: true, discounts };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get active discounts for a shop",
     parameters: {
       type: "object",
@@ -774,7 +1166,14 @@ const availableFunctions = {
 
   // Category Management
   createCategory: {
-    function: createCategory,
+    async function(categoryData) {
+      try {
+        const category = await Category.createCategory(categoryData);
+        return { success: true, category };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Create a new product category",
     parameters: {
       type: "object",
@@ -793,7 +1192,14 @@ const availableFunctions = {
   },
 
   getCategories: {
-    function: getCategories,
+    async function(shopId, includeInactive = false) {
+      try {
+        const categories = await Category.getCategories(shopId, includeInactive);
+        return { success: true, categories };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get categories for a shop",
     parameters: {
       type: "object",
@@ -806,7 +1212,14 @@ const availableFunctions = {
   },
 
   getCategoryById: {
-    function: getCategoryById,
+    async function(categoryId) {
+      try {
+        const category = await Category.getCategoryById(categoryId);
+        return { success: true, category };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get category by ID",
     parameters: {
       type: "object",
@@ -818,7 +1231,14 @@ const availableFunctions = {
   },
 
   updateCategory: {
-    function: updateCategory,
+    async function(categoryId, updates) {
+      try {
+        const category = await Category.updateCategory(categoryId, updates);
+        return { success: true, category };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Update category information",
     parameters: {
       type: "object",
@@ -831,7 +1251,14 @@ const availableFunctions = {
   },
 
   deleteCategory: {
-    function: deleteCategory,
+    async function(categoryId) {
+      try {
+        const category = await Category.deleteCategory(categoryId);
+        return { success: true, category };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Delete a category",
     parameters: {
       type: "object",
@@ -843,7 +1270,14 @@ const availableFunctions = {
   },
 
   getProductsByCategory: {
-    function: getProductsByCategory,
+    async function(categoryId) {
+      try {
+        const products = await Category.getProductsByCategory(categoryId);
+        return { success: true, products };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get products by category",
     parameters: {
       type: "object",
@@ -855,7 +1289,14 @@ const availableFunctions = {
   },
 
   getCategoryHierarchy: {
-    function: getCategoryHierarchy,
+    async function(shopId) {
+      try {
+        const hierarchy = await Category.getCategoryHierarchy(shopId);
+        return { success: true, hierarchy };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
     description: "Get category hierarchy for a shop",
     parameters: {
       type: "object",
@@ -866,14 +1307,67 @@ const availableFunctions = {
     }
   },
 
-  // Utility Functions
-  runDailyTasks: {
-    function: runDailyTasks,
-    description: "Run daily maintenance tasks",
+  // Product-Category Relations
+  addProductToCategory: {
+    async function(categoryId, productId) {
+      try {
+        const category = await Category.addProductToCategory(categoryId, productId);
+        return { success: true, category };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Add product to category",
     parameters: {
       type: "object",
-      properties: {}
+      properties: {
+        categoryId: { type: "string" },
+        productId: { type: "string" }
+      },
+      required: ["categoryId", "productId"]
     }
+  },
+
+  removeProductFromCategory: {
+    async function(categoryId, productId) {
+      try {
+        const category = await Category.removeProductFromCategory(categoryId, productId);
+        return { success: true, category };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Remove product from category",
+    parameters: {
+      type: "object",
+      properties: {
+        categoryId: { type: "string" },
+        productId: { type: "string" }
+      },
+      required: ["categoryId", "productId"]
+    }
+  },
+
+  // Utility Functions
+  runDailyTasks: {
+    async function() {
+      try {
+        await Shop.runDailyTasks();
+        return { success: true, message: "Daily tasks completed" };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+    description: "Run daily maintenance tasks",
+    parameters: { type: "object", properties: {} }
+  },
+
+  getAvailablePermissions: {
+    async function() {
+      return { success: true, permissions: AVAILABLE_PERMISSIONS };
+    },
+    description: "Get available permission modules",
+    parameters: { type: "object", properties: {} }
   }
 };
 
@@ -927,6 +1421,7 @@ Master Shop System Features:
 - Cross-shop inventory tracking
 - Network-wide analytics
 - User debt management across shops
+- Granular permission system
 
 User Context:
 - User ID: ${userId || 'Not specified'} ${masterShopContext}
@@ -937,6 +1432,7 @@ Security Protocols:
 - Cannot create owner accounts
 - Restrict shop access based on user permissions
 - Mask financial details in responses
+- Verify user has required permissions before operations
 
 Available Functions:
 ${Object.keys(availableFunctions).map(f => `- ${f}`).join('\n')}`;
@@ -1037,56 +1533,6 @@ export async function main(userQuestion, userId = null, shopId = null) {
   }
 }
 
-// Test function
-export async function runTest() {
-  try {
-    // Test master shop creation
-    const owner = await User.findOne({ role: 'owner' });
-    if (!owner) {
-      return { status: "No owner found for test" };
-    }
-
-    const shopRes = await availableFunctions.createMasterShop.function(
-      { name: "Test Master", phone: "1234567890" },
-      owner._id,
-      true
-    );
-
-    // Test product creation
-    const productRes = await availableFunctions.createProduct.function({
-      productData: {
-        name: "Test Product",
-        shopId: shopRes._id,
-        pricing: { costPrice: 10, sellingPrice: 15 }
-      }
-    });
-
-    // Test sale creation
-    const saleRes = await availableFunctions.createSale.function({
-      saleData: {
-        shopId: shopRes._id,
-        items: [{
-          product: productRes._id,
-          quantity: 2,
-          unitPrice: 15
-        }]
-      }
-    });
-
-    return {
-      status: "success",
-      masterShop: !!shopRes,
-      product: !!productRes,
-      sale: !!saleRes
-    };
-  } catch (error) {
-    return {
-      status: "error",
-      error: error.message
-    };
-  }
-}
-
 // Health check
 export async function healthCheck() {
   return {
@@ -1098,4 +1544,4 @@ export async function healthCheck() {
 }
 
 // Export primary functions only
-export default { main, runTest };
+export default { main, healthCheck };
