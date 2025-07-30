@@ -373,504 +373,6 @@ const getShopStats = async (shopId) => {
     throw new Error(`Get shop stats failed: ${error.message}`);
   }
 };
-
-
-// Define available permissions with CRUD operations
-const AVAILABLE_PERMISSIONS = {
-  inventory: {
-    name: 'Inventory Management',
-    description: 'Manage products, categories, and stock',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  sales: {
-    name: 'Sales Management',
-    description: 'Process sales, view transactions, handle refunds',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  customers: {
-    name: 'Customer Management',
-    description: 'Manage customer information and loyalty programs',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  suppliers: {
-    name: 'Supplier Management',
-    description: 'Manage supplier information and relationships',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  reports: {
-    name: 'Reports & Analytics',
-    description: 'View reports, analytics, and business insights',
-    actions: ['read']
-  },
-  settings: {
-    name: 'Shop Settings',
-    description: 'Manage shop configuration and preferences',
-    actions: ['read', 'update']
-  },
-  users: {
-    name: 'User Management',
-    description: 'Manage staff accounts and permissions',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  discounts: {
-    name: 'Discount Management',
-    description: 'Create and manage promotional offers',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  categories: {
-    name: 'Category Management',
-    description: 'Organize products into categories',
-    actions: ['create', 'read', 'update', 'delete']
-  },
-  stock: {
-    name: 'Stock Management',
-    description: 'Adjust stock levels and track movements',
-    actions: ['create', 'read', 'update']
-  }
-};
-
-// Default permissions by role
-const DEFAULT_ROLE_PERMISSIONS = {
-  owner: {
-    inventory: ['create', 'read', 'update', 'delete'],
-    sales: ['create', 'read', 'update', 'delete'],
-    customers: ['create', 'read', 'update', 'delete'],
-    suppliers: ['create', 'read', 'update', 'delete'],
-    reports: ['read'],
-    settings: ['read', 'update'],
-    users: ['create', 'read', 'update', 'delete'],
-    discounts: ['create', 'read', 'update', 'delete'],
-    categories: ['create', 'read', 'update', 'delete'],
-    stock: ['create', 'read', 'update']
-  },
-  manager: {
-    inventory: ['create', 'read', 'update'],
-    sales: ['create', 'read', 'update', 'delete'],
-    customers: ['create', 'read', 'update'],
-    suppliers: ['read'],
-    reports: ['read'],
-    settings: ['read'],
-    users: ['read'],
-    discounts: ['create', 'read', 'update'],
-    categories: ['create', 'read', 'update'],
-    stock: ['create', 'read', 'update']
-  },
-  staff: {
-    inventory: ['read'],
-    sales: ['create', 'read'],
-    customers: ['create', 'read', 'update'],
-    suppliers: ['read'],
-    reports: [],
-    settings: ['read'],
-    users: [],
-    discounts: ['read'],
-    categories: ['read'],
-    stock: ['read']
-  }
-};
-// 4. REPLACE YOUR EXISTING setCurrentShop FUNCTION WITH THIS ENHANCED VERSION
-
-const setCurrentShop = async (userId, shopId) => {
-  try {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('User not found');
-    
-    // Verify access
-    const shopAccess = user.shops.find(s => 
-      s.shopId.toString() === shopId.toString() && s.isActive
-    );
-    if (!shopAccess) throw new Error('No access to shop');
-    
-    user.currentShop = shopId;
-    await user.save();
-    
-    return {
-      currentShop: shopId,
-      role: shopAccess.role,
-      permissions: formatPermissionsFromDB(shopAccess.permissions)
-    };
-  } catch (error) {
-    throw new Error(`Set current shop failed: ${error.message}`);
-  }
-};
-
-// 5. ADD THESE NEW FUNCTIONS AFTER YOUR EXISTING AUTHENTICATION FUNCTIONS
-
-/**
- * Get all available permissions
- */
-const getAvailablePermissions = () => {
-  return AVAILABLE_PERMISSIONS;
-};
-
-/**
- * Register a new staff member by owner/manager
- */
-const registerStaff = async (staffData, registeredByUserId) => {
-  try {
-    const { name, email, phone, password, shopId, role = 'staff', customPermissions = null } = staffData;
-    
-    // Validate the registering user has permission
-    const registeringUser = await User.findById(registeredByUserId)
-      .populate('shops.shopId');
-    
-    if (!registeringUser) throw new Error('Registering user not found');
-    
-    // Check if registering user has access to the shop and permission to create users
-    const shopAccess = registeringUser.shops.find(
-      s => s.shopId._id.toString() === shopId.toString() && s.isActive
-    );
-    
-    if (!shopAccess) throw new Error('You do not have access to this shop');
-    
-    // Check if user has permission to create users
-    if (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'create')) {
-      throw new Error('You do not have permission to create staff accounts');
-    }
-    
-    // Validate shop exists
-    const shop = await Shop.findById(shopId);
-    if (!shop) throw new Error('Shop not found');
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
-    if (existingUser) throw new Error('User with this email or phone already exists');
-    
-    // Validate role
-    if (!['staff', 'manager'].includes(role)) {
-      throw new Error('Invalid role. Only staff and manager roles can be created');
-    }
-    
-    // Set permissions based on role or custom permissions
-    let permissions = customPermissions || DEFAULT_ROLE_PERMISSIONS[role];
-    
-    // Create new staff user
-    const newStaff = new User({
-      name,
-      email,
-      phone,
-      password,
-      role,
-      shops: [{
-        shopId: shopId,
-        role: role,
-        permissions: formatPermissionsForDB(permissions),
-        isActive: true,
-        joinedAt: new Date(),
-        addedBy: registeredByUserId
-      }],
-      currentShop: shopId,
-      isVerified: true // Staff accounts are auto-verified
-    });
-    
-    await newStaff.save();
-    
-    // Add staff to shop's users array
-    await shop.addUserWithPermissions(
-      newStaff._id,
-      role,
-      formatPermissionsForDB(permissions),
-      registeredByUserId
-    );
-    
-    // Log permission history
-    await logPermissionHistory({
-      userId: newStaff._id,
-      shopId: shopId,
-      actionType: 'user_added',
-      newRole: role,
-      newPermissions: formatPermissionsForDB(permissions),
-      changedBy: registeredByUserId,
-      reason: 'New staff member registered'
-    });
-    
-    return {
-      user: {
-        id: newStaff._id,
-        name: newStaff.name,
-        email: newStaff.email,
-        phone: newStaff.phone,
-        role: newStaff.role,
-        permissions: permissions,
-        shopId: shopId,
-        createdBy: registeredByUserId
-      }
-    };
-  } catch (error) {
-    throw new Error(`Staff registration failed: ${error.message}`);
-  }
-};
-
-/**
- * Update user role and permissions
- */
-const updateUserRoleAndPermissions = async (targetUserId, updatedByUserId, updates) => {
-  try {
-    const { shopId, role, permissions } = updates;
-    
-    // Validate updating user has permission
-    const updatingUser = await User.findById(updatedByUserId);
-    if (!updatingUser) throw new Error('Updating user not found');
-    
-    const shopAccess = updatingUser.shops.find(
-      s => s.shopId.toString() === shopId.toString() && s.isActive
-    );
-    
-    if (!shopAccess || (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'update'))) {
-      throw new Error('You do not have permission to update user roles');
-    }
-    
-    // Get target user
-    const targetUser = await User.findById(targetUserId);
-    if (!targetUser) throw new Error('Target user not found');
-    
-    // Find user's shop association
-    const userShopIndex = targetUser.shops.findIndex(
-      s => s.shopId.toString() === shopId.toString()
-    );
-    
-    if (userShopIndex === -1) throw new Error('User is not associated with this shop');
-    
-    // Store previous values for history
-    const previousRole = targetUser.shops[userShopIndex].role;
-    const previousPermissions = [...targetUser.shops[userShopIndex].permissions];
-    
-    // Update role and permissions
-    if (role) {
-      targetUser.shops[userShopIndex].role = role;
-    }
-    
-    if (permissions) {
-      targetUser.shops[userShopIndex].permissions = formatPermissionsForDB(permissions);
-      targetUser.shops[userShopIndex].permissionsUpdatedAt = new Date();
-      targetUser.shops[userShopIndex].permissionsUpdatedBy = updatedByUserId;
-    }
-    
-    await targetUser.save();
-    
-    // Update shop's users array
-    const shop = await Shop.findById(shopId);
-    await shop.updateUserPermissions(
-      targetUserId,
-      role,
-      permissions ? formatPermissionsForDB(permissions) : null,
-      updatedByUserId
-    );
-    
-    // Log permission history
-    await logPermissionHistory({
-      userId: targetUserId,
-      shopId: shopId,
-      actionType: role ? 'role_change' : 'permission_update',
-      previousRole: previousRole,
-      newRole: role || previousRole,
-      previousPermissions: previousPermissions,
-      newPermissions: permissions ? formatPermissionsForDB(permissions) : previousPermissions,
-      changedBy: updatedByUserId,
-      reason: `Role/permissions updated by ${updatingUser.name}`
-    });
-    
-    return {
-      userId: targetUserId,
-      shopId: shopId,
-      role: targetUser.shops[userShopIndex].role,
-      permissions: formatPermissionsFromDB(targetUser.shops[userShopIndex].permissions)
-    };
-  } catch (error) {
-    throw new Error(`Update user role failed: ${error.message}`);
-  }
-};
-
-/**
- * Get shop staff with their roles and permissions
- */
-const getShopStaff = async (shopId, requestingUserId) => {
-  try {
-    // Validate requesting user has permission
-    const requestingUser = await User.findById(requestingUserId);
-    if (!requestingUser) throw new Error('Requesting user not found');
-    
-    const shopAccess = requestingUser.shops.find(
-      s => s.shopId.toString() === shopId.toString() && s.isActive
-    );
-    
-    if (!shopAccess || !hasPermission(shopAccess.permissions, 'users', 'read')) {
-      throw new Error('You do not have permission to view staff');
-    }
-    
-    // Get shop with staff
-    const shop = await Shop.findById(shopId)
-      .populate({
-        path: 'users.userId',
-        select: 'name email phone role lastLogin createdAt isActive'
-      })
-      .populate({
-        path: 'users.addedBy',
-        select: 'name email'
-      });
-    
-    if (!shop) throw new Error('Shop not found');
-    
-    // Format staff data with permissions
-    const staff = shop.users
-      .filter(u => u.isActive && u.userId)
-      .map(u => ({
-        id: u.userId._id,
-        name: u.userId.name,
-        email: u.userId.email,
-        phone: u.userId.phone,
-        role: u.role,
-        permissions: formatPermissionsFromDB(u.permissions),
-        joinedAt: u.addedAt,
-        lastLogin: u.userId.lastLogin,
-        isActive: u.isActive,
-        addedBy: u.addedBy ? {
-          id: u.addedBy._id,
-          name: u.addedBy.name,
-          email: u.addedBy.email
-        } : null
-      }));
-    
-    return staff;
-  } catch (error) {
-    throw new Error(`Get shop staff failed: ${error.message}`);
-  }
-};
-
-/**
- * Remove staff from shop
- */
-const removeStaffFromShop = async (targetUserId, shopId, removedByUserId) => {
-  try {
-    // Validate removing user has permission
-    const removingUser = await User.findById(removedByUserId);
-    if (!removingUser) throw new Error('Removing user not found');
-    
-    const shopAccess = removingUser.shops.find(
-      s => s.shopId.toString() === shopId.toString() && s.isActive
-    );
-    
-    if (!shopAccess || (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'delete'))) {
-      throw new Error('You do not have permission to remove staff');
-    }
-    
-    // Get target user
-    const targetUser = await User.findById(targetUserId);
-    if (!targetUser) throw new Error('Target user not found');
-    
-    // Cannot remove shop owner
-    if (targetUser.role === 'owner') {
-      throw new Error('Cannot remove shop owner');
-    }
-    
-    // Update user's shop access
-    const userShopIndex = targetUser.shops.findIndex(
-      s => s.shopId.toString() === shopId.toString()
-    );
-    
-    if (userShopIndex !== -1) {
-      targetUser.shops[userShopIndex].isActive = false;
-      await targetUser.save();
-    }
-    
-    // Update shop's users array
-    const shop = await Shop.findById(shopId);
-    await shop.removeUser(targetUserId);
-    
-    // Log permission history
-    await logPermissionHistory({
-      userId: targetUserId,
-      shopId: shopId,
-      actionType: 'user_removed',
-      previousRole: targetUser.shops[userShopIndex]?.role,
-      changedBy: removedByUserId,
-      reason: `Staff removed by ${removingUser.name}`
-    });
-    
-    return { success: true, message: 'Staff removed successfully' };
-  } catch (error) {
-    throw new Error(`Remove staff failed: ${error.message}`);
-  }
-};
-
-/**
- * Get user permissions for a specific shop
- */
-const getUserPermissions = async (userId, shopId) => {
-  try {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('User not found');
-    
-    return user.getShopPermissions(shopId);
-  } catch (error) {
-    throw new Error(`Get user permissions failed: ${error.message}`);
-  }
-};
-
-// 6. ADD THESE UTILITY FUNCTIONS
-
-/**
- * Check if user has specific permission
- */
-const hasPermission = (userPermissions, module, action) => {
-  if (!userPermissions || !Array.isArray(userPermissions)) return false;
-  
-  const permission = userPermissions.find(p => p.startsWith(`${module}:`));
-  if (!permission) return false;
-  
-  const actions = permission.split(':')[1].split(',');
-  return actions.includes(action);
-};
-
-/**
- * Format permissions for database storage
- */
-const formatPermissionsForDB = (permissions) => {
-  const formatted = [];
-  
-  Object.keys(permissions).forEach(module => {
-    if (permissions[module] && permissions[module].length > 0) {
-      formatted.push(`${module}:${permissions[module].join(',')}`);
-    }
-  });
-  
-  return formatted;
-};
-
-/**
- * Format permissions from database for frontend
- */
-const formatPermissionsFromDB = (permissions) => {
-  const formatted = {};
-  
-  if (!permissions || !Array.isArray(permissions)) return formatted;
-  
-  permissions.forEach(permission => {
-    const [module, actions] = permission.split(':');
-    if (module && actions) {
-      formatted[module] = actions.split(',');
-    }
-  });
-  
-  return formatted;
-};
-
-/**
- * Log permission history
- */
-const logPermissionHistory = async (historyData) => {
-  try {
-    const history = new PermissionHistory(historyData);
-    await history.save();
-    return history;
-  } catch (error) {
-    console.error('Failed to log permission history:', error.message);
-    // Don't throw error to avoid breaking main functionality
-  }
-};
-
-
-
 // ========================= PRODUCT MANAGEMENT FUNCTIONS =========================
 
 const createProduct = async (productData) => {
@@ -1832,6 +1334,502 @@ const getCategoryHierarchy = async (shopId) => {
     return rootCategories;
   } catch (error) {
     throw new Error(`Get category hierarchy failed: ${error.message}`);
+  }
+};
+
+// 2. ADD THESE CONSTANTS AFTER YOUR EXISTING IMPORTS
+
+// Define available permissions with CRUD operations
+const AVAILABLE_PERMISSIONS = {
+  inventory: {
+    name: 'Inventory Management',
+    description: 'Manage products, categories, and stock',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  sales: {
+    name: 'Sales Management',
+    description: 'Process sales, view transactions, handle refunds',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  customers: {
+    name: 'Customer Management',
+    description: 'Manage customer information and loyalty programs',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  suppliers: {
+    name: 'Supplier Management',
+    description: 'Manage supplier information and relationships',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  reports: {
+    name: 'Reports & Analytics',
+    description: 'View reports, analytics, and business insights',
+    actions: ['read']
+  },
+  settings: {
+    name: 'Shop Settings',
+    description: 'Manage shop configuration and preferences',
+    actions: ['read', 'update']
+  },
+  users: {
+    name: 'User Management',
+    description: 'Manage staff accounts and permissions',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  discounts: {
+    name: 'Discount Management',
+    description: 'Create and manage promotional offers',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  categories: {
+    name: 'Category Management',
+    description: 'Organize products into categories',
+    actions: ['create', 'read', 'update', 'delete']
+  },
+  stock: {
+    name: 'Stock Management',
+    description: 'Adjust stock levels and track movements',
+    actions: ['create', 'read', 'update']
+  }
+};
+
+// Default permissions by role
+const DEFAULT_ROLE_PERMISSIONS = {
+  owner: {
+    inventory: ['create', 'read', 'update', 'delete'],
+    sales: ['create', 'read', 'update', 'delete'],
+    customers: ['create', 'read', 'update', 'delete'],
+    suppliers: ['create', 'read', 'update', 'delete'],
+    reports: ['read'],
+    settings: ['read', 'update'],
+    users: ['create', 'read', 'update', 'delete'],
+    discounts: ['create', 'read', 'update', 'delete'],
+    categories: ['create', 'read', 'update', 'delete'],
+    stock: ['create', 'read', 'update']
+  },
+  manager: {
+    inventory: ['create', 'read', 'update'],
+    sales: ['create', 'read', 'update', 'delete'],
+    customers: ['create', 'read', 'update'],
+    suppliers: ['read'],
+    reports: ['read'],
+    settings: ['read'],
+    users: ['read'],
+    discounts: ['create', 'read', 'update'],
+    categories: ['create', 'read', 'update'],
+    stock: ['create', 'read', 'update']
+  },
+  staff: {
+    inventory: ['read'],
+    sales: ['create', 'read'],
+    customers: ['create', 'read', 'update'],
+    suppliers: ['read'],
+    reports: [],
+    settings: ['read'],
+    users: [],
+    discounts: ['read'],
+    categories: ['read'],
+    stock: ['read']
+  }
+};
+// 4. REPLACE YOUR EXISTING setCurrentShop FUNCTION WITH THIS ENHANCED VERSION
+
+const setCurrentShop = async (userId, shopId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('User not found');
+    
+    // Verify access
+    const shopAccess = user.shops.find(s => 
+      s.shopId.toString() === shopId.toString() && s.isActive
+    );
+    if (!shopAccess) throw new Error('No access to shop');
+    
+    user.currentShop = shopId;
+    await user.save();
+    
+    return {
+      currentShop: shopId,
+      role: shopAccess.role,
+      permissions: formatPermissionsFromDB(shopAccess.permissions)
+    };
+  } catch (error) {
+    throw new Error(`Set current shop failed: ${error.message}`);
+  }
+};
+
+// 5. ADD THESE NEW FUNCTIONS AFTER YOUR EXISTING AUTHENTICATION FUNCTIONS
+
+/**
+ * Get all available permissions
+ */
+const getAvailablePermissions = () => {
+  return AVAILABLE_PERMISSIONS;
+};
+
+/**
+ * Register a new staff member by owner/manager
+ */
+const registerStaff = async (staffData, registeredByUserId) => {
+  try {
+    const { name, email, phone, password, shopId, role = 'staff', customPermissions = null } = staffData;
+    
+    // Validate the registering user has permission
+    const registeringUser = await User.findById(registeredByUserId)
+      .populate('shops.shopId');
+    
+    if (!registeringUser) throw new Error('Registering user not found');
+    
+    // Check if registering user has access to the shop and permission to create users
+    const shopAccess = registeringUser.shops.find(
+      s => s.shopId._id.toString() === shopId.toString() && s.isActive
+    );
+    
+    if (!shopAccess) throw new Error('You do not have access to this shop');
+    
+    // Check if user has permission to create users
+    if (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'create')) {
+      throw new Error('You do not have permission to create staff accounts');
+    }
+    
+    // Validate shop exists
+    const shop = await Shop.findById(shopId);
+    if (!shop) throw new Error('Shop not found');
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
+    if (existingUser) throw new Error('User with this email or phone already exists');
+    
+    // Validate role
+    if (!['staff', 'manager'].includes(role)) {
+      throw new Error('Invalid role. Only staff and manager roles can be created');
+    }
+    
+    // Set permissions based on role or custom permissions
+    let permissions = customPermissions || DEFAULT_ROLE_PERMISSIONS[role];
+    
+    // Create new staff user
+    const newStaff = new User({
+      name,
+      email,
+      phone,
+      password,
+      role,
+      shops: [{
+        shopId: shopId,
+        role: role,
+        permissions: formatPermissionsForDB(permissions),
+        isActive: true,
+        joinedAt: new Date(),
+        addedBy: registeredByUserId
+      }],
+      currentShop: shopId,
+      isVerified: true // Staff accounts are auto-verified
+    });
+    
+    await newStaff.save();
+    
+    // Add staff to shop's users array
+    await shop.addUserWithPermissions(
+      newStaff._id,
+      role,
+      formatPermissionsForDB(permissions),
+      registeredByUserId
+    );
+    
+    // Log permission history
+    await logPermissionHistory({
+      userId: newStaff._id,
+      shopId: shopId,
+      actionType: 'user_added',
+      newRole: role,
+      newPermissions: formatPermissionsForDB(permissions),
+      changedBy: registeredByUserId,
+      reason: 'New staff member registered'
+    });
+    
+    return {
+      user: {
+        id: newStaff._id,
+        name: newStaff.name,
+        email: newStaff.email,
+        phone: newStaff.phone,
+        role: newStaff.role,
+        permissions: permissions,
+        shopId: shopId,
+        createdBy: registeredByUserId
+      }
+    };
+  } catch (error) {
+    throw new Error(`Staff registration failed: ${error.message}`);
+  }
+};
+
+/**
+ * Update user role and permissions
+ */
+const updateUserRoleAndPermissions = async (targetUserId, updatedByUserId, updates) => {
+  try {
+    const { shopId, role, permissions } = updates;
+    
+    // Validate updating user has permission
+    const updatingUser = await User.findById(updatedByUserId);
+    if (!updatingUser) throw new Error('Updating user not found');
+    
+    const shopAccess = updatingUser.shops.find(
+      s => s.shopId.toString() === shopId.toString() && s.isActive
+    );
+    
+    if (!shopAccess || (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'update'))) {
+      throw new Error('You do not have permission to update user roles');
+    }
+    
+    // Get target user
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) throw new Error('Target user not found');
+    
+    // Find user's shop association
+    const userShopIndex = targetUser.shops.findIndex(
+      s => s.shopId.toString() === shopId.toString()
+    );
+    
+    if (userShopIndex === -1) throw new Error('User is not associated with this shop');
+    
+    // Store previous values for history
+    const previousRole = targetUser.shops[userShopIndex].role;
+    const previousPermissions = [...targetUser.shops[userShopIndex].permissions];
+    
+    // Update role and permissions
+    if (role) {
+      targetUser.shops[userShopIndex].role = role;
+    }
+    
+    if (permissions) {
+      targetUser.shops[userShopIndex].permissions = formatPermissionsForDB(permissions);
+      targetUser.shops[userShopIndex].permissionsUpdatedAt = new Date();
+      targetUser.shops[userShopIndex].permissionsUpdatedBy = updatedByUserId;
+    }
+    
+    await targetUser.save();
+    
+    // Update shop's users array
+    const shop = await Shop.findById(shopId);
+    await shop.updateUserPermissions(
+      targetUserId,
+      role,
+      permissions ? formatPermissionsForDB(permissions) : null,
+      updatedByUserId
+    );
+    
+    // Log permission history
+    await logPermissionHistory({
+      userId: targetUserId,
+      shopId: shopId,
+      actionType: role ? 'role_change' : 'permission_update',
+      previousRole: previousRole,
+      newRole: role || previousRole,
+      previousPermissions: previousPermissions,
+      newPermissions: permissions ? formatPermissionsForDB(permissions) : previousPermissions,
+      changedBy: updatedByUserId,
+      reason: `Role/permissions updated by ${updatingUser.name}`
+    });
+    
+    return {
+      userId: targetUserId,
+      shopId: shopId,
+      role: targetUser.shops[userShopIndex].role,
+      permissions: formatPermissionsFromDB(targetUser.shops[userShopIndex].permissions)
+    };
+  } catch (error) {
+    throw new Error(`Update user role failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get shop staff with their roles and permissions
+ */
+const getShopStaff = async (shopId, requestingUserId) => {
+  try {
+    // Validate requesting user has permission
+    const requestingUser = await User.findById(requestingUserId);
+    if (!requestingUser) throw new Error('Requesting user not found');
+    
+    const shopAccess = requestingUser.shops.find(
+      s => s.shopId.toString() === shopId.toString() && s.isActive
+    );
+    
+    if (!shopAccess || !hasPermission(shopAccess.permissions, 'users', 'read')) {
+      throw new Error('You do not have permission to view staff');
+    }
+    
+    // Get shop with staff
+    const shop = await Shop.findById(shopId)
+      .populate({
+        path: 'users.userId',
+        select: 'name email phone role lastLogin createdAt isActive'
+      })
+      .populate({
+        path: 'users.addedBy',
+        select: 'name email'
+      });
+    
+    if (!shop) throw new Error('Shop not found');
+    
+    // Format staff data with permissions
+    const staff = shop.users
+      .filter(u => u.isActive && u.userId)
+      .map(u => ({
+        id: u.userId._id,
+        name: u.userId.name,
+        email: u.userId.email,
+        phone: u.userId.phone,
+        role: u.role,
+        permissions: formatPermissionsFromDB(u.permissions),
+        joinedAt: u.addedAt,
+        lastLogin: u.userId.lastLogin,
+        isActive: u.isActive,
+        addedBy: u.addedBy ? {
+          id: u.addedBy._id,
+          name: u.addedBy.name,
+          email: u.addedBy.email
+        } : null
+      }));
+    
+    return staff;
+  } catch (error) {
+    throw new Error(`Get shop staff failed: ${error.message}`);
+  }
+};
+
+/**
+ * Remove staff from shop
+ */
+const removeStaffFromShop = async (targetUserId, shopId, removedByUserId) => {
+  try {
+    // Validate removing user has permission
+    const removingUser = await User.findById(removedByUserId);
+    if (!removingUser) throw new Error('Removing user not found');
+    
+    const shopAccess = removingUser.shops.find(
+      s => s.shopId.toString() === shopId.toString() && s.isActive
+    );
+    
+    if (!shopAccess || (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'delete'))) {
+      throw new Error('You do not have permission to remove staff');
+    }
+    
+    // Get target user
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) throw new Error('Target user not found');
+    
+    // Cannot remove shop owner
+    if (targetUser.role === 'owner') {
+      throw new Error('Cannot remove shop owner');
+    }
+    
+    // Update user's shop access
+    const userShopIndex = targetUser.shops.findIndex(
+      s => s.shopId.toString() === shopId.toString()
+    );
+    
+    if (userShopIndex !== -1) {
+      targetUser.shops[userShopIndex].isActive = false;
+      await targetUser.save();
+    }
+    
+    // Update shop's users array
+    const shop = await Shop.findById(shopId);
+    await shop.removeUser(targetUserId);
+    
+    // Log permission history
+    await logPermissionHistory({
+      userId: targetUserId,
+      shopId: shopId,
+      actionType: 'user_removed',
+      previousRole: targetUser.shops[userShopIndex]?.role,
+      changedBy: removedByUserId,
+      reason: `Staff removed by ${removingUser.name}`
+    });
+    
+    return { success: true, message: 'Staff removed successfully' };
+  } catch (error) {
+    throw new Error(`Remove staff failed: ${error.message}`);
+  }
+};
+
+/**
+ * Get user permissions for a specific shop
+ */
+const getUserPermissions = async (userId, shopId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('User not found');
+    
+    return user.getShopPermissions(shopId);
+  } catch (error) {
+    throw new Error(`Get user permissions failed: ${error.message}`);
+  }
+};
+
+// 6. ADD THESE UTILITY FUNCTIONS
+
+/**
+ * Check if user has specific permission
+ */
+const hasPermission = (userPermissions, module, action) => {
+  if (!userPermissions || !Array.isArray(userPermissions)) return false;
+  
+  const permission = userPermissions.find(p => p.startsWith(`${module}:`));
+  if (!permission) return false;
+  
+  const actions = permission.split(':')[1].split(',');
+  return actions.includes(action);
+};
+
+/**
+ * Format permissions for database storage
+ */
+const formatPermissionsForDB = (permissions) => {
+  const formatted = [];
+  
+  Object.keys(permissions).forEach(module => {
+    if (permissions[module] && permissions[module].length > 0) {
+      formatted.push(`${module}:${permissions[module].join(',')}`);
+    }
+  });
+  
+  return formatted;
+};
+
+/**
+ * Format permissions from database for frontend
+ */
+const formatPermissionsFromDB = (permissions) => {
+  const formatted = {};
+  
+  if (!permissions || !Array.isArray(permissions)) return formatted;
+  
+  permissions.forEach(permission => {
+    const [module, actions] = permission.split(':');
+    if (module && actions) {
+      formatted[module] = actions.split(',');
+    }
+  });
+  
+  return formatted;
+};
+
+/**
+ * Log permission history
+ */
+const logPermissionHistory = async (historyData) => {
+  try {
+    const history = new PermissionHistory(historyData);
+    await history.save();
+    return history;
+  } catch (error) {
+    console.error('Failed to log permission history:', error.message);
+    // Don't throw error to avoid breaking main functionality
   }
 };
 

@@ -1780,5 +1780,6 @@ export {
   StockMovement,
   DailyReport,
   Notification,
-  Discount
+  Discount,
+  PermissionHistory
 };
