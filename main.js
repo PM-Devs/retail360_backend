@@ -1221,11 +1221,6 @@ const createCategory = async (categoryData) => {
       cleanedData.parentCategory = null;
     }
     
-    // Validate ObjectId format if parentCategory is provided
-    if (cleanedData.parentCategory && !mongoose.Types.ObjectId.isValid(cleanedData.parentCategory)) {
-      throw new Error('Invalid parentCategory ObjectId format');
-    }
-    
     const newCategory = new Category(cleanedData);
     const savedCategory = await newCategory.save();
     return savedCategory;
@@ -1233,15 +1228,6 @@ const createCategory = async (categoryData) => {
     throw new Error(`Category creation failed: ${error.message}`);
   }
 };
-
-// Alternative: You can also handle this in a pre-save middleware
-categorySchema.pre('save', function(next) {
-  // Convert empty string to null for parentCategory
-  if (this.parentCategory === '') {
-    this.parentCategory = null;
-  }
-  next();
-});
 
 /**
  * Get all categories for a shop
