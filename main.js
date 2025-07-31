@@ -1206,18 +1206,42 @@ const runDailyTasks = async () => {
 
 // ========================= CATEGORY MANAGEMENT FUNCTIONS =========================
 
+
+
 /**
  * Create a new category
  */
 const createCategory = async (categoryData) => {
   try {
-    const newCategory = new Category(categoryData);
+    // Clean the category data before saving
+    const cleanedData = { ...categoryData };
+    
+    // Handle empty string for parentCategory - convert to null
+    if (cleanedData.parentCategory === '' || cleanedData.parentCategory === undefined) {
+      cleanedData.parentCategory = null;
+    }
+    
+    // Validate ObjectId format if parentCategory is provided
+    if (cleanedData.parentCategory && !mongoose.Types.ObjectId.isValid(cleanedData.parentCategory)) {
+      throw new Error('Invalid parentCategory ObjectId format');
+    }
+    
+    const newCategory = new Category(cleanedData);
     const savedCategory = await newCategory.save();
     return savedCategory;
   } catch (error) {
     throw new Error(`Category creation failed: ${error.message}`);
   }
 };
+
+// Alternative: You can also handle this in a pre-save middleware
+categorySchema.pre('save', function(next) {
+  // Convert empty string to null for parentCategory
+  if (this.parentCategory === '') {
+    this.parentCategory = null;
+  }
+  next();
+});
 
 /**
  * Get all categories for a shop
