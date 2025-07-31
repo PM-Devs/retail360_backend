@@ -80,11 +80,18 @@ const registerUser = async (userData) => {
 
 
 // ========================= MASTER SHOP MANAGEMENT FUNCTIONS =========================
-
 const createShop = async (shopData, userId, setAsMaster = false) => {
   try {
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found');
+
+    const role = 'owner';
+    const rolePermissions = DEFAULT_ROLE_PERMISSIONS[role];
+
+    // Convert structured permissions to "module:action1,action2" format
+    const formattedPermissions = Object.entries(rolePermissions)
+      .filter(([_, actions]) => actions.length > 0)
+      .map(([module, actions]) => `${module}:${actions.join(',')}`);
 
     // Create shop
     const shop = new Shop({
@@ -92,9 +99,9 @@ const createShop = async (shopData, userId, setAsMaster = false) => {
       owner: userId,
       shopLevel: setAsMaster ? 'master' : 'independent',
       users: [{
-        userId: userId,
-        role: 'owner',
-        permissions: ['inventory', 'sales', 'reports', 'settings', 'users'],
+        userId,
+        role,
+        permissions: formattedPermissions,
         isActive: true
       }]
     });
@@ -110,8 +117,8 @@ const createShop = async (shopData, userId, setAsMaster = false) => {
 
     user.shops.push({
       shopId: shop._id,
-      role: 'owner',
-      permissions: ['inventory', 'sales', 'reports', 'settings', 'users'],
+      role,
+      permissions: formattedPermissions,
       isActive: true
     });
 
@@ -131,6 +138,7 @@ const createShop = async (shopData, userId, setAsMaster = false) => {
     throw new Error(`Create shop failed: ${error.message}`);
   }
 };
+
 
 const setMasterShop = async (userId, shopId) => {
   try {
