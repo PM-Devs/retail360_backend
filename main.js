@@ -400,6 +400,9 @@ const createProduct = async (productData) => {
     if (!productData.pricing?.sellingPrice) {
       throw new Error('Selling price is required');
     }
+    if (!productData.addedBy) {
+      throw new Error('User (addedBy) is required');
+    }
 
     // Validate category exists and belongs to same shop
     const category = await Category.findOne({
@@ -425,11 +428,11 @@ const createProduct = async (productData) => {
       productData.shopId
     );
 
-    // Structure the product data according to schema
-    const structuredProductData = {
+    // Prepare product data with proper structure
+    const productToCreate = {
       name: productData.name,
       description: productData.description || '',
-      barcode: productData.barcode || undefined,
+      barcode: productData.barcode,
       qrCode,
       sku,
       category: productData.category,
@@ -443,21 +446,21 @@ const createProduct = async (productData) => {
       stock: {
         currentQuantity: productData.stock?.currentQuantity || 0,
         minQuantity: productData.stock?.minQuantity || 5,
-        maxQuantity: productData.stock?.maxQuantity || undefined,
+        maxQuantity: productData.stock?.maxQuantity,
         reorderLevel: productData.stock?.reorderLevel || 10
       },
       unitOfMeasure: productData.unitOfMeasure || 'piece',
       variants: productData.variants || [],
       images: productData.images || [],
-      supplier: productData.supplier || undefined,
+      supplier: productData.supplier,
       tags: productData.tags || [],
       isActive: productData.isActive !== undefined ? productData.isActive : true,
       trackStock: productData.trackStock !== undefined ? productData.trackStock : true,
-      expiryDate: productData.expiryDate || undefined,
-      batchNumber: productData.batchNumber || undefined
+      expiryDate: productData.expiryDate,
+      batchNumber: productData.batchNumber
     };
 
-    const newProduct = new Product(structuredProductData);
+    const newProduct = new Product(productToCreate);
     const savedProduct = await newProduct.save();
 
     // Generate QR image
@@ -473,12 +476,16 @@ const createProduct = async (productData) => {
         previousQuantity: 0,
         newQuantity: savedProduct.stock.currentQuantity,
         reason: 'purchase',
-        user: productData.addedBy || null,
-        notes: 'Initial stock entry'
+        user: productData.addedBy, // Now guaranteed to be present
+        notes: 'Initial stock entry',
+        cost: savedProduct.pricing.costPrice * savedProduct.stock.currentQuantity
       });
     }
 
-    return { ...savedProduct.toObject(), qrCodeImage };
+    return { 
+      ...savedProduct.toObject(), 
+      qrCodeImage 
+    };
   } catch (error) {
     throw new Error(`Create product failed: ${error.message}`);
   }
