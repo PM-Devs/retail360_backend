@@ -382,67 +382,107 @@ const getShopStats = async (shopId) => {
   }
 };
 // ========================= PRODUCT MANAGEMENT FUNCTIONS =========================
-
 const createProduct = async (productData) => {
   try {
+    // Validate required fields
+    if (!productData.name) {
+      throw new Error('Product name is required');
+    }
+    if (!productData.category) {
+      throw new Error('Category is required');
+    }
+    if (!productData.shopId) {
+      throw new Error('Shop ID is required');
+    }
+    if (!productData.pricing?.costPrice) {
+      throw new Error('Cost price is required');
+    }
+    if (!productData.pricing?.sellingPrice) {
+      throw new Error('Selling price is required');
+    }
+
     // Validate category exists and belongs to same shop
-    if (productData.category) {
-      const category = await Category.findOne({
-        _id: productData.category,
-        shopId: productData.shopId,
-        isActive: true
-      });
-      
-      if (!category) {
-        throw new Error('Invalid category or category not found for this shop');
-      }
+    const category = await Category.findOne({
+      _id: productData.category,
+      shopId: productData.shopId,
+      isActive: true
+    });
+    
+    if (!category) {
+      throw new Error('Invalid category or category not found for this shop');
     }
 
     // Generate QR code
     const qrCode = helpers.generateQRCode(
-      productData.shopId, 
+      productData.shopId,
       Date.now().toString()
     );
 
     // Generate SKU if not provided
     const sku = productData.sku || helpers.generateSKU(
-      productData.category ? productData.category.name : 'GEN',
+      category.name || 'GEN',
       productData.name.substring(0, 3),
       productData.shopId
     );
 
-    const newProduct = new Product({
-      ...productData,
+    // Structure the product data according to schema
+    const structuredProductData = {
+      name: productData.name,
+      description: productData.description || '',
+      barcode: productData.barcode || undefined,
       qrCode,
-      sku
-    });
+      sku,
+      category: productData.category,
+      shopId: productData.shopId,
+      pricing: {
+        costPrice: productData.pricing.costPrice,
+        sellingPrice: productData.pricing.sellingPrice,
+        wholesalePrice: productData.pricing.wholesalePrice || 0,
+        discountPrice: productData.pricing.discountPrice || 0
+      },
+      stock: {
+        currentQuantity: productData.stock?.currentQuantity || 0,
+        minQuantity: productData.stock?.minQuantity || 5,
+        maxQuantity: productData.stock?.maxQuantity || undefined,
+        reorderLevel: productData.stock?.reorderLevel || 10
+      },
+      unitOfMeasure: productData.unitOfMeasure || 'piece',
+      variants: productData.variants || [],
+      images: productData.images || [],
+      supplier: productData.supplier || undefined,
+      tags: productData.tags || [],
+      isActive: productData.isActive !== undefined ? productData.isActive : true,
+      trackStock: productData.trackStock !== undefined ? productData.trackStock : true,
+      expiryDate: productData.expiryDate || undefined,
+      batchNumber: productData.batchNumber || undefined
+    };
 
+    const newProduct = new Product(structuredProductData);
     const savedProduct = await newProduct.save();
-    
+
     // Generate QR image
     const qrCodeImage = await QRCode.toDataURL(qrCode);
-    
-    // Create initial stock movement
-    if (newProduct.stock.currentQuantity > 0) {
+
+    // Create initial stock movement if there's initial stock
+    if (savedProduct.stock.currentQuantity > 0) {
       await createStockMovement({
         product: savedProduct._id,
         shopId: savedProduct.shopId,
         type: 'in',
-        quantity: newProduct.stock.currentQuantity,
+        quantity: savedProduct.stock.currentQuantity,
         previousQuantity: 0,
-        newQuantity: newProduct.stock.currentQuantity,
+        newQuantity: savedProduct.stock.currentQuantity,
         reason: 'purchase',
         user: productData.addedBy || null,
         notes: 'Initial stock entry'
       });
     }
-    
+
     return { ...savedProduct.toObject(), qrCodeImage };
   } catch (error) {
     throw new Error(`Create product failed: ${error.message}`);
   }
 };
-
 const getProducts = async (shopId, filters = {}) => {
   try {
     const query = { shopId, isActive: true };
