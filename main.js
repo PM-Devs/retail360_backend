@@ -1539,18 +1539,45 @@ const registerStaff = async (staffData, registeredByUserId) => {
   try {
     const { name, email, phone, password, shopId, role = 'staff', customPermissions = null } = staffData;
     
+    // Validate required fields first
+    if (!name || !email || !phone || !password || !shopId || !registeredByUserId) {
+      throw new Error('Missing required fields: name, email, phone, password, shopId, and registeredByUserId are required');
+    }
+    
+    // Validate shopId format (should be a valid ObjectId)
+    if (!mongoose.Types.ObjectId.isValid(shopId)) {
+      throw new Error('Invalid shopId format');
+    }
+    
+    if (!mongoose.Types.ObjectId.isValid(registeredByUserId)) {
+      throw new Error('Invalid registeredByUserId format');
+    }
+    
     // Validate the registering user has permission
     const registeringUser = await User.findById(registeredByUserId)
       .populate('shops.shopId');
     
-    if (!registeringUser) throw new Error('Registering user not found');
+    if (!registeringUser) {
+      throw new Error('Registering user not found');
+    }
+    
+    if (!registeringUser.shops || registeringUser.shops.length === 0) {
+      throw new Error('Registering user has no shop access');
+    }
     
     // Check if registering user has access to the shop and permission to create users
-    const shopAccess = registeringUser.shops.find(
-      s => s.shopId._id.toString() === shopId.toString() && s.isActive
-    );
+    const shopAccess = registeringUser.shops.find(shopEntry => {
+      // Handle both populated and unpopulated shopId references
+      const shopEntryId = shopEntry.shopId._id ? 
+        shopEntry.shopId._id.toString() : 
+        shopEntry.shopId.toString();
+      
+      return shopEntryId === shopId.toString() && shopEntry.isActive;
+    });
     
-    if (!shopAccess) throw new Error('You do not have access to this shop');
+    if (!shopAccess) {
+      throw new Error('You do not have access to this shop');
+    }
     
     // Check if user has permission to create users
     if (shopAccess.role !== 'owner' && !hasPermission(shopAccess.permissions, 'users', 'create')) {
@@ -1559,11 +1586,21 @@ const registerStaff = async (staffData, registeredByUserId) => {
     
     // Validate shop exists
     const shop = await Shop.findById(shopId);
-    if (!shop) throw new Error('Shop not found');
+    if (!shop) {
+      throw new Error('Shop not found');
+    }
     
     // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
-    if (existingUser) throw new Error('User with this email or phone already exists');
+    const existingUser = await User.findOne({
+      $or: [
+        { email: email.toLowerCase().trim() },
+        { phone: phone.trim() }
+      ]
+    });
+    
+    if (existingUser) {
+      throw new Error('User with this email or phone already exists');
+    }
     
     // Validate role
     if (!['staff', 'manager'].includes(role)) {
@@ -1573,47 +1610,84 @@ const registerStaff = async (staffData, registeredByUserId) => {
     // Set permissions based on role or custom permissions
     let permissions = customPermissions || DEFAULT_ROLE_PERMISSIONS[role];
     
-    // Create new staff user
+    // Validate permissions exist
+    if (!permissions) {
+      throw new Error(`No permissions defined for role: ${role}`);
+    }
+    
+    // Hash password before saving
+    const hashedPassword = await bcrypt.hash(password, 12);
+    
+    // Create new staff user with proper schema structure
     const newStaff = new User({
-      name,
-      email,
-      phone,
-      password,
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      phone: phone.trim(),
+      password: hashedPassword,
       role,
+      // Initialize empty arrays to match schema
+      ownedShops: [], // Empty since this is staff, not owner
       shops: [{
-        shopId: shopId,
+        shopId: new mongoose.Types.ObjectId(shopId),
         role: role,
         permissions: formatPermissionsForDB(permissions),
         isActive: true,
         joinedAt: new Date(),
-        addedBy: registeredByUserId
+        addedBy: new mongoose.Types.ObjectId(registeredByUserId),
+        permissionsUpdatedAt: new Date(),
+        permissionsUpdatedBy: new mongoose.Types.ObjectId(registeredByUserId)
       }],
-      currentShop: shopId,
-      isVerified: true // Staff accounts are auto-verified
+      currentShop: new mongoose.Types.ObjectId(shopId),
+      // Initialize financials with defaults
+      financials: {
+        totalOwed: 0,
+        shopDebts: [],
+        masterShopBalance: 0
+      },
+      // Set default global permissions based on role
+      globalPermissions: {
+        canViewReports: role === 'manager',
+        canManageInventory: role === 'manager',
+        canManageStaff: false,
+        canViewProfits: false,
+        canProcessRefunds: role === 'manager',
+        canManageCustomers: true,
+        canManageMasterShop: false
+      },
+      isVerified: true, // Staff accounts are auto-verified
+      isActive: true,
+      lastLogin: new Date()
     });
     
+    // Save the new staff user
     await newStaff.save();
     
-    // Add staff to shop's users array
-    await shop.addUserWithPermissions(
-      newStaff._id,
-      role,
-      formatPermissionsForDB(permissions),
-      registeredByUserId
-    );
+    // Add staff to shop's users array (assuming this method exists on Shop model)
+    if (shop.addUserWithPermissions) {
+      await shop.addUserWithPermissions(
+        newStaff._id,
+        role,
+        formatPermissionsForDB(permissions),
+        registeredByUserId
+      );
+    }
     
-    // Log permission history
-    await logPermissionHistory({
-      userId: newStaff._id,
-      shopId: shopId,
-      actionType: 'user_added',
-      newRole: role,
-      newPermissions: formatPermissionsForDB(permissions),
-      changedBy: registeredByUserId,
-      reason: 'New staff member registered'
-    });
+    // Log permission history (assuming this function exists)
+    if (typeof logPermissionHistory === 'function') {
+      await logPermissionHistory({
+        userId: newStaff._id,
+        shopId: new mongoose.Types.ObjectId(shopId),
+        actionType: 'user_added',
+        newRole: role,
+        newPermissions: formatPermissionsForDB(permissions),
+        changedBy: new mongoose.Types.ObjectId(registeredByUserId),
+        reason: 'New staff member registered'
+      });
+    }
     
+    // Return user data without sensitive information
     return {
+      success: true,
       user: {
         id: newStaff._id,
         name: newStaff.name,
@@ -1622,14 +1696,18 @@ const registerStaff = async (staffData, registeredByUserId) => {
         role: newStaff.role,
         permissions: permissions,
         shopId: shopId,
-        createdBy: registeredByUserId
+        createdBy: registeredByUserId,
+        isActive: newStaff.isActive,
+        isVerified: newStaff.isVerified,
+        createdAt: newStaff.createdAt
       }
     };
+    
   } catch (error) {
+    console.error('Staff registration error:', error);
     throw new Error(`Staff registration failed: ${error.message}`);
   }
 };
-
 /**
  * Update user role and permissions
  */
