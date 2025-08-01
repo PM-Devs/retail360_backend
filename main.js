@@ -1532,9 +1532,6 @@ const getAvailablePermissions = () => {
   return AVAILABLE_PERMISSIONS;
 };
 
-/**
- * Register a new staff member by owner/manager
- */
 const registerStaff = async (staffData, registeredByUserId) => {
   try {
     const { name, email, phone, password, shopId, role = 'staff', customPermissions = null } = staffData;
@@ -1542,15 +1539,6 @@ const registerStaff = async (staffData, registeredByUserId) => {
     // Validate required fields first
     if (!name || !email || !phone || !password || !shopId || !registeredByUserId) {
       throw new Error('Missing required fields: name, email, phone, password, shopId, and registeredByUserId are required');
-    }
-    
-    // Validate shopId format (should be a valid ObjectId)
-    if (!mongoose.Types.ObjectId.isValid(shopId)) {
-      throw new Error('Invalid shopId format');
-    }
-    
-    if (!mongoose.Types.ObjectId.isValid(registeredByUserId)) {
-      throw new Error('Invalid registeredByUserId format');
     }
     
     // Validate the registering user has permission
@@ -1615,45 +1603,24 @@ const registerStaff = async (staffData, registeredByUserId) => {
       throw new Error(`No permissions defined for role: ${role}`);
     }
     
-    // Hash password before saving
-    const hashedPassword = await bcrypt.hash(password, 12);
-    
-    // Create new staff user with proper schema structure
+    // Create new staff user
     const newStaff = new User({
       name: name.trim(),
       email: email.toLowerCase().trim(),
       phone: phone.trim(),
-      password: hashedPassword,
+      password, // Let the User model handle password hashing
       role,
-      // Initialize empty arrays to match schema
-      ownedShops: [], // Empty since this is staff, not owner
       shops: [{
-        shopId: new mongoose.Types.ObjectId(shopId),
+        shopId: shopId,
         role: role,
         permissions: formatPermissionsForDB(permissions),
         isActive: true,
         joinedAt: new Date(),
-        addedBy: new mongoose.Types.ObjectId(registeredByUserId),
+        addedBy: registeredByUserId,
         permissionsUpdatedAt: new Date(),
-        permissionsUpdatedBy: new mongoose.Types.ObjectId(registeredByUserId)
+        permissionsUpdatedBy: registeredByUserId
       }],
-      currentShop: new mongoose.Types.ObjectId(shopId),
-      // Initialize financials with defaults
-      financials: {
-        totalOwed: 0,
-        shopDebts: [],
-        masterShopBalance: 0
-      },
-      // Set default global permissions based on role
-      globalPermissions: {
-        canViewReports: role === 'manager',
-        canManageInventory: role === 'manager',
-        canManageStaff: false,
-        canViewProfits: false,
-        canProcessRefunds: role === 'manager',
-        canManageCustomers: true,
-        canManageMasterShop: false
-      },
+      currentShop: shopId,
       isVerified: true, // Staff accounts are auto-verified
       isActive: true,
       lastLogin: new Date()
@@ -1662,7 +1629,7 @@ const registerStaff = async (staffData, registeredByUserId) => {
     // Save the new staff user
     await newStaff.save();
     
-    // Add staff to shop's users array (assuming this method exists on Shop model)
+    // Add staff to shop's users array
     if (shop.addUserWithPermissions) {
       await shop.addUserWithPermissions(
         newStaff._id,
@@ -1672,15 +1639,15 @@ const registerStaff = async (staffData, registeredByUserId) => {
       );
     }
     
-    // Log permission history (assuming this function exists)
+    // Log permission history
     if (typeof logPermissionHistory === 'function') {
       await logPermissionHistory({
         userId: newStaff._id,
-        shopId: new mongoose.Types.ObjectId(shopId),
+        shopId: shopId,
         actionType: 'user_added',
         newRole: role,
         newPermissions: formatPermissionsForDB(permissions),
-        changedBy: new mongoose.Types.ObjectId(registeredByUserId),
+        changedBy: registeredByUserId,
         reason: 'New staff member registered'
       });
     }
